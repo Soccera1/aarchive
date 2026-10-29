@@ -1,0 +1,4 @@
+set(MbedTLS_FOUND TRUE)
+set(MBEDTLS_FOUND TRUE)
+set(MBEDTLS_INCLUDE_DIRS "${mbedtls_SOURCE_DIR}/include")
+set(MBEDCRYPTO_LIBRARY mbedcrypto)

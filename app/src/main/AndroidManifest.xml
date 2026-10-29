@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="AArchive" android:theme="@style/AppTheme"
+        android:icon="@drawable/ic_archive" android:allowBackup="false"
+        android:fullBackupContent="@xml/full_backup_rules"
+        android:dataExtractionRules="@xml/backup_rules" android:supportsRtl="true">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="application/zip" />
+                <data android:mimeType="application/x-tar" />
+                <data android:mimeType="application/gzip" />
+                <data android:mimeType="application/x-gzip" />
+                <data android:mimeType="application/x-bzip2" />
+                <data android:mimeType="application/x-xz" />
+                <data android:mimeType="application/x-lzma" />
+                <data android:mimeType="application/zstd" />
+                <data android:mimeType="application/x-lz4" />
+                <data android:mimeType="application/x-lzip" />
+                <data android:mimeType="application/x-lzop" />
+                <data android:mimeType="application/x-compress" />
+                <data android:mimeType="application/x-brotli" />
+                <data android:mimeType="application/x-snappy" />
+                <data android:mimeType="application/x-7z-compressed" />
+                <data android:mimeType="application/vnd.rar" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
