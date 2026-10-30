@@ -2,9 +2,9 @@ package dev.aarchive;
 
 import android.app.*;
 import android.content.*;
-import android.graphics.Color;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.app.AlertDialog;
+import static dev.aarchive.MaterialUi.Text.*;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -15,16 +15,16 @@ import android.widget.*;
 import java.io.File;
 import java.util.*;
 
-public final class MainActivity extends Activity {
+public final class MainActivity extends AppCompatActivity {
     private static final int OPEN = 1, DESTINATION = 2;
     private static final int INSTALL_PERMISSION = 40;
-    private static final int INK = 0xff202c27, MUTED = 0xff63716a, GREEN = 0xff285a46, PAPER = 0xfff6f7f2;
     private ArchiveModel model;
     private TextView archiveName, archiveInfo, status, count, empty;
     private Button open, createArchive, password, extract, select, cancel;
     private EditText search;
     private ProgressBar progress;
-    private LinearLayout archiveCard, queryControls, selectionControls, bottomActions;
+    private View archiveCard;
+    private LinearLayout queryControls, selectionControls, bottomActions;
     private EntriesAdapter adapter;
     private final List<Integer> visible = new ArrayList<>();
     private boolean resumed;
@@ -34,8 +34,8 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        model = (ArchiveModel) getLastNonConfigurationInstance();
-        if (model == null) model = new ArchiveModel(this);
+        MaterialUi.apply(this);
+        model = ScreenModels.archive(this);
         buildUi();
         model.changed = this::render;
         model.updater.changed = this::renderUpdate;
@@ -45,14 +45,12 @@ public final class MainActivity extends Activity {
             importUri(getIntent().getData());
     }
 
-    @Override public Object onRetainNonConfigurationInstance() { return model; }
     @Override protected void onResume() { super.onResume(); resumed = true; renderUpdate(); }
     @Override protected void onPause() { resumed = false; super.onPause(); }
     @Override protected void onDestroy() {
         model.changed = null;
         model.updater.changed = null;
         if (updateDialog != null) updateDialog.dismiss();
-        if (isFinishing()) model.close();
         super.onDestroy();
     }
 
@@ -73,19 +71,19 @@ public final class MainActivity extends Activity {
         if (model.busy || updater.dismissed) return;
         updateDialogState = updater.state;
         if (updater.state == Updater.State.OFFER) {
-            updateDialog = new AlertDialog.Builder(this).setTitle("Update available")
+            updateDialog = MaterialUi.dialog(this).setTitle("Update available")
                     .setMessage("AArchive " + updater.candidate.versionName + " is available in your "
                             + (BuildConfig.UPDATE_CHANNEL.equals("github-master") ? "master" : "versioned release") + " channel.")
                     .setPositiveButton("Download and install", (dialog, which) -> updater.download())
                     .setNegativeButton("Later", (dialog, which) -> updater.dismissed = true)
                     .setOnCancelListener(dialog -> updater.dismissed = true).create();
         } else if (updater.state == Updater.State.DOWNLOADING) {
-            updateProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            updateProgress = MaterialUi.progress(this);
             updateProgress.setMax(100); updateProgress.setProgress(updater.percent);
             LinearLayout content = column();
             content.setPadding(dp(24), dp(12), dp(24), dp(12));
-            content.addView(updateProgress, new LinearLayout.LayoutParams(-1, dp(8)));
-            updateDialog = new AlertDialog.Builder(this).setTitle("Updating AArchive").setMessage(updater.status)
+            content.addView(updateProgress, new LinearLayout.LayoutParams(-1, -2));
+            updateDialog = MaterialUi.dialog(this).setTitle("Updating AArchive").setMessage(updater.status)
                     .setView(content).setCancelable(false).setNegativeButton("Cancel", null).create();
             updateDialog.setOnShowListener(dialog -> updateDialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(view -> {
                 updater.cancel(); updateDialog.setMessage("Cancelling…"); view.setEnabled(false);
@@ -96,17 +94,17 @@ public final class MainActivity extends Activity {
                 requestUpdateInstall();
                 return;
             }
-            updateDialog = new AlertDialog.Builder(this).setTitle("Update ready").setMessage("Install AArchive " + updater.candidate.versionName + "?")
+            updateDialog = MaterialUi.dialog(this).setTitle("Update ready").setMessage("Install AArchive " + updater.candidate.versionName + "?")
                     .setPositiveButton("Install", (dialog, which) -> { updater.dismissed = true; requestUpdateInstall(); })
                     .setNegativeButton("Later", (dialog, which) -> updater.dismissed = true)
                     .setOnCancelListener(dialog -> updater.dismissed = true).create();
         } else if (updater.state == Updater.State.ERROR) {
-            updateDialog = new AlertDialog.Builder(this).setTitle("Update failed").setMessage(updater.status)
+            updateDialog = MaterialUi.dialog(this).setTitle("Update failed").setMessage(updater.status)
                     .setPositiveButton("Retry", (dialog, which) -> updater.download())
                     .setNegativeButton("Close", (dialog, which) -> updater.dismissed = true)
                     .setOnCancelListener(dialog -> updater.dismissed = true).create();
         } else if (updater.state == Updater.State.PERMISSION) {
-            updateDialog = new AlertDialog.Builder(this).setTitle("Allow update installation")
+            updateDialog = MaterialUi.dialog(this).setTitle("Allow update installation")
                     .setMessage("Android needs permission for AArchive to install its update. Enable “Allow from this source” on the next screen. Android will then ask you to confirm installation.")
                     .setPositiveButton("Open settings", (dialog, which) -> {
                         updater.state = Updater.State.READY; updater.dismissed = true;
@@ -135,19 +133,13 @@ public final class MainActivity extends Activity {
         catch (ActivityNotFoundException | SecurityException error) { updateInstallError("Android could not open the package installer: " + error.getMessage()); }
     }
     private void updateInstallError(String message) {
-        new AlertDialog.Builder(this).setTitle("Update installation").setMessage(message).setPositiveButton("OK", null).show();
+        MaterialUi.dialog(this).setTitle("Update installation").setMessage(message).setPositiveButton("OK", null).show();
     }
 
     private void buildUi() {
         LinearLayout root = column();
-        root.setBackgroundColor(PAPER);
         root.setPadding(dp(22), dp(12), dp(22), dp(12));
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            view.setPadding(dp(22) + insets.getSystemWindowInsetLeft(), dp(12) + insets.getSystemWindowInsetTop(),
-                    dp(22) + insets.getSystemWindowInsetRight(), dp(12) + insets.getSystemWindowInsetBottom());
-            return insets;
-        });
-        setContentView(root);
+        MaterialUi.content(this, root);
         boolean compact = getResources().getConfiguration().screenHeightDp < 600;
         LinearLayout compactHeader = row();
         open = button("Open file", true);
@@ -173,34 +165,29 @@ public final class MainActivity extends Activity {
         });
 
         LinearLayout card = column();
-        archiveCard = card;
+        archiveCard = MaterialUi.card(this, card);
         card.setPadding(dp(14), dp(8), dp(14), dp(8));
-        card.setBackground(shape(Color.WHITE, 18));
-        archiveName = text("", 18, INK, true);
+        archiveName = text("", TITLE);
         archiveName.setMaxLines(2);
         archiveName.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout cardRow = row();
         LinearLayout cardLabels = column();
         cardLabels.addView(archiveName);
-        archiveInfo = text("", 12, MUTED, false);
+        archiveInfo = text("", SECONDARY);
         if (!compact) cardLabels.addView(archiveInfo, spaced(-1, -2, 4));
         cardRow.addView(cardLabels, new LinearLayout.LayoutParams(0, -2, 1));
         password = button("Password", false);
         cardRow.addView(password, new LinearLayout.LayoutParams(-2, dp(48)));
         card.addView(cardRow);
         password.setOnClickListener(v -> passwordDialog());
-        if (compact) compactHeader.addView(card, new LinearLayout.LayoutParams(0, -2, 1));
-        else root.addView(card, spaced(-1, -2, 12));
+        if (compact) compactHeader.addView(archiveCard, new LinearLayout.LayoutParams(0, -2, 1));
+        else root.addView(archiveCard, spaced(-1, -2, 12));
 
-        search = new EditText(this);
+        search = MaterialUi.edit(this);
         search.setSingleLine(true);
-        search.setTextSize(14);
-        search.setHint("Search paths…");
         search.setContentDescription("Search archive entries");
-        search.setPadding(dp(14), 0, dp(14), 0);
-        search.setBackground(shape(0xffe9ede6, 12));
         queryControls = row();
-        queryControls.addView(search, new LinearLayout.LayoutParams(0, dp(48), 1));
+        queryControls.addView(MaterialUi.input(this, search, "Search paths…", true), new LinearLayout.LayoutParams(0, -2, 1));
         root.addView(queryControls, spaced(-1, -2, compact ? 4 : 12));
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -209,7 +196,7 @@ public final class MainActivity extends Activity {
         });
         LinearLayout selection = row();
         selectionControls = selection;
-        count = text("", 12, MUTED, true);
+        count = text("", LABEL);
         selection.addView(count, new LinearLayout.LayoutParams(0, dp(48), 1));
         select = button("Select all", false);
         if (compact) queryControls.addView(select, new LinearLayout.LayoutParams(-2, dp(48)));
@@ -223,9 +210,6 @@ public final class MainActivity extends Activity {
 
         FrameLayout contents = new FrameLayout(this);
         ListView list = new ListView(this);
-        list.setDividerHeight(dp(1));
-        list.setDivider(new android.graphics.drawable.ColorDrawable(0xffe3e7df));
-        list.setBackgroundColor(Color.TRANSPARENT);
         adapter = new EntriesAdapter();
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> {
@@ -236,19 +220,19 @@ public final class MainActivity extends Activity {
             render();
         });
         contents.addView(list, new FrameLayout.LayoutParams(-1, -1));
-        empty = text("", 17, MUTED, false);
+        empty = text("", SECONDARY);
         empty.setGravity(Gravity.CENTER);
         empty.setPadding(dp(20), dp(20), dp(20), dp(20));
         contents.addView(empty, new FrameLayout.LayoutParams(-1, -1));
         root.addView(contents, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progress = MaterialUi.progress(this);
         progress.setIndeterminate(true);
-        root.addView(progress, new LinearLayout.LayoutParams(-1, dp(4)));
-        status = text("", 12, MUTED, false);
+        root.addView(progress, new LinearLayout.LayoutParams(-1, -2));
+        status = text("", SECONDARY);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         status.setMaxLines(compact ? 2 : 4);
-        status.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Operation details")
+        status.setOnClickListener(v -> MaterialUi.dialog(this).setTitle("Operation details")
                 .setMessage(model.status).setPositiveButton("OK", null).show());
         root.addView(status, spaced(-1, -2, 10));
         LinearLayout actions = row();
@@ -264,14 +248,13 @@ public final class MainActivity extends Activity {
     }
 
     private void passwordDialog() {
-        EditText field = new EditText(this);
+        EditText field = MaterialUi.edit(this);
         field.setSingleLine();
         field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        field.setHint("Archive password");
         LinearLayout panel = column();
         panel.setPadding(dp(24), 0, dp(24), 0);
-        panel.addView(field);
-        new AlertDialog.Builder(this).setTitle("Unlock archive").setMessage("The password stays in memory for this session.")
+        panel.addView(MaterialUi.input(this, field, "Archive password", false));
+        MaterialUi.dialog(this).setTitle("Unlock archive").setMessage("The password stays in memory for this session.")
                 .setView(panel).setNegativeButton("Cancel", null)
                 .setPositiveButton("Retry", (dialog, which) -> {
                     model.password(field.getText().toString());
@@ -347,7 +330,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showFormats() {
-        new AlertDialog.Builder(this).setTitle("Supported formats")
+        MaterialUi.dialog(this).setTitle("Supported formats")
                 .setMessage("Create\nZIP, 7z, TAR, CPIO, compressed TAR/CPIO, and standalone compressed files. Select files or folders, a codec, and a save location.\n\n"
                         + "Read archives\nZIP, 7z, RAR/RAR5, TAR, CPIO, CAB, ISO, AR/DEB, RPM, XAR, LHA/LZH, WARC and other libarchive containers.\n\n"
                         + "Compressed files\ngzip (.gz), bzip2 (.bz2), XZ, LZMA, Zstandard (.zst), LZ4, lzip (.lz), LZOP (.lzo), Unix compress (.Z), "
@@ -368,14 +351,14 @@ public final class MainActivity extends Activity {
             if (recycled == null) {
                 view = row();
                 view.setPadding(dp(4), dp(8), dp(4), dp(8));
-                TextView icon = text("", 12, GREEN, true);
+                TextView icon = text("", LABEL);
                 icon.setGravity(Gravity.CENTER);
                 view.addView(icon, new LinearLayout.LayoutParams(dp(46), dp(48)));
                 LinearLayout labels = column();
-                labels.addView(text("", 14, INK, true));
-                labels.addView(text("", 12, MUTED, false));
+                labels.addView(text("", BODY));
+                labels.addView(text("", SECONDARY));
                 view.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
-                CheckBox check = new CheckBox(MainActivity.this);
+                CheckBox check = MaterialUi.checkbox(MainActivity.this);
                 check.setClickable(false);
                 check.setFocusable(false);
                 check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -403,25 +386,8 @@ public final class MainActivity extends Activity {
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private LinearLayout column() { LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL); return layout; }
     private LinearLayout row() { LinearLayout layout = new LinearLayout(this); layout.setGravity(Gravity.CENTER_VERTICAL); return layout; }
-    private TextView text(String value, int size, int color, boolean bold) {
-        TextView text = new TextView(this);
-        text.setText(value); text.setTextSize(size); text.setTextColor(color); text.setGravity(Gravity.CENTER_VERTICAL);
-        if (bold) text.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        return text;
-    }
-    private Button button(String label, boolean primary) {
-        Button button = new Button(this);
-        button.setText(label); button.setTextSize(14); button.setAllCaps(false);
-        int[][] states = {new int[]{android.R.attr.state_enabled}, new int[]{}};
-        button.setTextColor(new android.content.res.ColorStateList(states,
-                new int[]{primary ? Color.WHITE : GREEN, 0xff7b847d}));
-        button.setBackgroundTintList(new android.content.res.ColorStateList(states,
-                new int[]{primary ? GREEN : 0xffe5ece3, 0xffe4e7df}));
-        return button;
-    }
-    private GradientDrawable shape(int color, int radius) {
-        GradientDrawable drawable = new GradientDrawable(); drawable.setColor(color); drawable.setCornerRadius(dp(radius)); return drawable;
-    }
+    private TextView text(String value, MaterialUi.Text role) { return MaterialUi.text(this, value, role); }
+    private Button button(String label, boolean primary) { return MaterialUi.button(this, label, primary); }
     private LinearLayout.LayoutParams spaced(int width, int height, int top) {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(width, height); params.topMargin = dp(top); return params;
     }

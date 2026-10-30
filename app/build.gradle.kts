@@ -1,5 +1,9 @@
 plugins { id("com.android.application") }
 
+dependencies {
+    implementation("com.google.android.material:material:1.14.0")
+}
+
 val masterBuildNumber = providers.gradleProperty("masterBuildNumber").map { it.toInt() }.orElse(1)
 val updateChannel = providers.gradleProperty("updateChannel").orElse("none").get()
 val updateRepository = providers.gradleProperty("updateRepository").orElse("Soccera1/aarchive").get()

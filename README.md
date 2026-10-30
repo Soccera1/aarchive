@@ -6,6 +6,23 @@ supports ARMv7, ARMv8, x86, and x86-64 in one universal APK.
 
 [Browse](docs/screenshot.png) · [Create](docs/create.png) · [Standalone gzip](docs/standalone-gzip.png)
 
+## Android UI
+
+The device's Android version selects one of four Material presentations:
+
+| Android version | Presentation |
+| --- | --- |
+| 8–8.1 | [Material 1](docs/ui/material1-create.png), with original-era controls |
+| 9–11 | [Material 2](docs/ui/material2-create.png) |
+| 12–15 | [Material You / Material 3](docs/ui/material3-create.png) |
+| 16 and newer | [Material 3 Expressive](docs/ui/expressive-create.png) |
+
+Buttons, fields, dropdowns, sliders, cards, checkboxes, dialogs and typography use
+the selected generation's styles. All presentations follow system light/dark
+mode. Android 12+ uses wallpaper-based dynamic colors where the device supports
+them. Archive/update logic is shared, and selections and running work survive
+rotation and theme changes. Previews were captured on Android 8, 9, 15 and 16.
+
 ## Build
 
 Use JDK 21 and install these components through Android Studio's SDK Manager:

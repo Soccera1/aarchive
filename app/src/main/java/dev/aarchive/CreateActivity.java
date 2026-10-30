@@ -2,8 +2,8 @@ package dev.aarchive;
 
 import android.app.*;
 import android.content.*;
-import android.graphics.Color;
-import android.graphics.Typeface;
+import androidx.appcompat.app.AppCompatActivity;
+import static dev.aarchive.MaterialUi.Text.*;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.TextUtils;
@@ -12,13 +12,12 @@ import android.view.*;
 import android.widget.*;
 import java.util.*;
 
-public final class CreateActivity extends Activity {
+public final class CreateActivity extends AppCompatActivity {
     private static final int FILES = 10, FOLDER = 11, OUTPUT = 12;
-    private static final int GREEN = 0xff285a46, INK = 0xff202c27, MUTED = 0xff63716a;
     private CreationModel model;
     private Button files, folder, create, cancel;
-    private Spinner format, codec;
-    private SeekBar quality;
+    private MaterialUi.Dropdown format, codec;
+    private MaterialUi.LevelSlider quality;
     private TextView qualityLabel, count, validation, status, empty;
     private ProgressBar progress;
     private SourceAdapter adapter;
@@ -27,84 +26,55 @@ public final class CreateActivity extends Activity {
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
-        model = (CreationModel) getLastNonConfigurationInstance();
-        if (model == null) model = new CreationModel(this);
+        MaterialUi.apply(this);
+        model = ScreenModels.creation(this);
         buildUi();
         model.changed = this::render;
         render();
     }
-    @Override public Object onRetainNonConfigurationInstance() { return model; }
     @Override protected void onDestroy() {
         model.changed = null;
-        if (isFinishing()) model.close();
         super.onDestroy();
     }
     private void buildUi() {
         LinearLayout root = column();
-        root.setBackgroundColor(0xfff6f7f2);
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            view.setPadding(dp(16) + insets.getSystemWindowInsetLeft(), dp(10) + insets.getSystemWindowInsetTop(),
-                    dp(16) + insets.getSystemWindowInsetRight(), dp(10) + insets.getSystemWindowInsetBottom());
-            return insets;
-        });
+        root.setPadding(dp(16), dp(10), dp(16), dp(10));
         boolean compact = getResources().getConfiguration().screenHeightDp < 480;
         if (compact) {
             ScrollView scrolling = new ScrollView(this);
             scrolling.setFillViewport(true);
             scrolling.addView(root);
-            setContentView(scrolling);
-        } else setContentView(root);
-        LinearLayout heading = row();
-        Button back = button("Back", false);
-        back.setOnClickListener(v -> finish());
-        heading.addView(back, new LinearLayout.LayoutParams(dp(88), dp(48)));
-        TextView title = text("Create", 20, INK);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        title.setPadding(dp(12), 0, 0, 0);
-        heading.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
-        root.addView(heading);
+            MaterialUi.content(this, scrolling);
+        } else MaterialUi.content(this, root);
+        root.addView(MaterialUi.toolbar(this, "Create", this::finish));
 
         LinearLayout options = row();
-        LinearLayout formatColumn = column(), codecColumn = column();
-        formatColumn.addView(text("Format", 12, MUTED));
-        codecColumn.addView(text("Compression", 12, MUTED));
-        format = new Spinner(this);
+        format = new MaterialUi.Dropdown(this, "Format");
         format.setContentDescription("Output format");
-        format.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, CreationFormat.LABELS));
-        codec = new Spinner(this);
+        format.setItems(CreationFormat.LABELS);
+        codec = new MaterialUi.Dropdown(this, "Compression");
         codec.setContentDescription("Compression codec");
-        formatColumn.addView(format, new LinearLayout.LayoutParams(-1, dp(48)));
-        codecColumn.addView(codec, new LinearLayout.LayoutParams(-1, dp(48)));
-        options.addView(formatColumn, new LinearLayout.LayoutParams(0, -2, 1));
-        options.addView(codecColumn, new LinearLayout.LayoutParams(0, -2, 1));
+        options.addView(format, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams codecLayout = new LinearLayout.LayoutParams(0, -2, 1);
+        codecLayout.setMarginStart(dp(8));
+        options.addView(codec, codecLayout);
         root.addView(options, margin(-1, -2, 12));
-        format.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            public void onNothingSelected(AdapterView<?> parent) {}
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (!rendering && !locked() && parent.getSelectedItemPosition() == position
-                        && !model.format.equals(CreationFormat.IDS[position])) model.setFormat(CreationFormat.IDS[position]);
-            }
+        format.onSelectionChanged(position -> {
+            if (!rendering && !locked() && format.getSelectedItemPosition() == position
+                    && !model.format.equals(CreationFormat.IDS[position])) model.setFormat(CreationFormat.IDS[position]);
         });
-        codec.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            public void onNothingSelected(AdapterView<?> parent) {}
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (!rendering && !locked() && position < codecIds.length && parent.getSelectedItemPosition() == position
-                        && !model.codec.equals(codecIds[position])) { model.codec = codecIds[position]; render(); }
-            }
+        codec.onSelectionChanged(position -> {
+            if (!rendering && !locked() && position < codecIds.length && codec.getSelectedItemPosition() == position
+                    && !model.codec.equals(codecIds[position])) { model.codec = codecIds[position]; render(); }
         });
-        qualityLabel = text("", 13, MUTED);
-        quality = new SeekBar(this);
-        quality.setMax(8);
+        qualityLabel = text("", SECONDARY);
+        quality = new MaterialUi.LevelSlider(this);
         quality.setContentDescription("Compression level");
-        quality.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onStartTrackingTouch(SeekBar bar) {}
-            public void onStopTrackingTouch(SeekBar bar) {}
-            public void onProgressChanged(SeekBar bar, int value, boolean fromUser) {
-                if (fromUser && !locked()) { model.level = value + 1; render(); }
-            }
+        quality.onChange(value -> {
+            if (!locked()) { model.level = value; render(); }
         });
         root.addView(qualityLabel);
-        root.addView(quality, new LinearLayout.LayoutParams(-1, dp(36)));
+        root.addView(quality, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout add = row();
         files = button("Add files", false);
@@ -117,7 +87,7 @@ public final class CreateActivity extends Activity {
         add.addView(files, new LinearLayout.LayoutParams(0, dp(48), 1));
         add.addView(folder, new LinearLayout.LayoutParams(0, dp(48), 1));
         root.addView(add, margin(-1, -2, 8));
-        count = text("", 12, MUTED);
+        count = text("", LABEL);
         root.addView(count, margin(-1, dp(32), 6));
 
         FrameLayout content = new FrameLayout(this);
@@ -125,19 +95,19 @@ public final class CreateActivity extends Activity {
         adapter = new SourceAdapter();
         list.setAdapter(adapter);
         content.addView(list, new FrameLayout.LayoutParams(-1, -1));
-        empty = text("Add files or a folder.", 16, MUTED);
+        empty = text("Add files or a folder.", SECONDARY);
         empty.setGravity(Gravity.CENTER);
         content.addView(empty, new FrameLayout.LayoutParams(-1, -1));
         root.addView(content, new LinearLayout.LayoutParams(-1, compact ? dp(180) : 0, compact ? 0 : 1));
-        validation = text("", 13, INK);
+        validation = text("", BODY);
         root.addView(validation, margin(-1, -2, 8));
-        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progress = MaterialUi.progress(this);
         progress.setIndeterminate(true);
-        root.addView(progress, new LinearLayout.LayoutParams(-1, dp(4)));
-        status = text("", 13, MUTED);
+        root.addView(progress, new LinearLayout.LayoutParams(-1, -2));
+        status = text("", SECONDARY);
         status.setMaxLines(3);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        status.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Operation details").setMessage(model.status).setPositiveButton("OK", null).show());
+        status.setOnClickListener(v -> MaterialUi.dialog(this).setTitle("Operation details").setMessage(model.status).setPositiveButton("OK", null).show());
         root.addView(status, margin(-1, -2, 8));
         LinearLayout actions = row();
         cancel = button("Cancel", false);
@@ -170,10 +140,10 @@ public final class CreateActivity extends Activity {
             codecIds = desired;
             String[] labels = new String[desired.length];
             for (int i = 0; i < labels.length; i++) labels[i] = CreationFormat.label(desired[i]);
-            codec.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, labels));
+            codec.setItems(labels);
         }
         codec.setSelection(Arrays.asList(codecIds).indexOf(model.codec));
-        quality.setProgress(model.level - 1);
+        quality.value(model.level);
         qualityLabel.setText(getString(R.string.compression_level, model.level));
         qualityLabel.setVisibility(CreationFormat.hasLevel(model.codec) ? View.VISIBLE : View.GONE);
         quality.setVisibility(CreationFormat.hasLevel(model.codec) ? View.VISIBLE : View.GONE);
@@ -219,10 +189,10 @@ public final class CreateActivity extends Activity {
             line.setPadding(0, dp(6), 0, dp(6));
             CreationModel.Source source = model.sources.get(position);
             LinearLayout details = column();
-            TextView name = text(source.name, 15, INK);
+            TextView name = text(source.name, BODY);
             name.setMaxLines(2); name.setEllipsize(TextUtils.TruncateAt.MIDDLE);
             details.addView(name);
-            details.addView(text(source.directory ? "Folder" : source.size < 0 ? "Size unknown" : Formatter.formatFileSize(CreateActivity.this, source.size), 12, MUTED));
+            details.addView(text(source.directory ? "Folder" : source.size < 0 ? "Size unknown" : Formatter.formatFileSize(CreateActivity.this, source.size), SECONDARY));
             line.addView(details, new LinearLayout.LayoutParams(0, -2, 1));
             Button remove = button("Remove", false);
             remove.setContentDescription("Remove " + source.name);
@@ -238,16 +208,8 @@ public final class CreateActivity extends Activity {
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private LinearLayout column() { LinearLayout result = new LinearLayout(this); result.setOrientation(LinearLayout.VERTICAL); return result; }
     private LinearLayout row() { LinearLayout result = new LinearLayout(this); result.setGravity(Gravity.CENTER_VERTICAL); return result; }
-    private TextView text(String value, int size, int color) {
-        TextView result = new TextView(this); result.setText(value); result.setTextSize(size); result.setTextColor(color); result.setGravity(Gravity.CENTER_VERTICAL); return result;
-    }
-    private Button button(String label, boolean primary) {
-        Button result = new Button(this); result.setText(label); result.setAllCaps(false); result.setTextSize(14);
-        int[][] states = {new int[]{android.R.attr.state_enabled}, new int[]{}};
-        result.setTextColor(new android.content.res.ColorStateList(states, new int[]{primary ? Color.WHITE : GREEN, 0xff7b847d}));
-        result.setBackgroundTintList(new android.content.res.ColorStateList(states, new int[]{primary ? GREEN : 0xffe5ece3, 0xffe4e7df}));
-        return result;
-    }
+    private TextView text(String value, MaterialUi.Text role) { return MaterialUi.text(this, value, role); }
+    private Button button(String label, boolean primary) { return MaterialUi.button(this, label, primary); }
     private LinearLayout.LayoutParams margin(int width, int height, int top) {
         LinearLayout.LayoutParams result = new LinearLayout.LayoutParams(width, height); result.topMargin = dp(top); return result;
     }

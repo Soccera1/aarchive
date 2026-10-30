@@ -10,8 +10,11 @@ final class UpdateVerifier {
     private UpdateVerifier() {}
     static long version(PackageInfo info) { return Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode; }
     private static Set<String> signers(PackageInfo info) throws IOException {
-        Signature[] signatures = Build.VERSION.SDK_INT >= 28 && info.signingInfo != null
-                ? info.signingInfo.getApkContentsSigners() : info.signatures;
+        Signature[] signatures = info.signatures;
+        if (Build.VERSION.SDK_INT >= 28 && info.signingInfo != null) {
+            Signature[] current = info.signingInfo.getApkContentsSigners();
+            if (current != null && current.length > 0) signatures = current;
+        }
         if (signatures == null || signatures.length == 0) throw new IOException("The APK has no signing certificate.");
         Set<String> result = new HashSet<>();
         for (Signature signature : signatures) result.add(signature.toCharsString());
@@ -19,7 +22,10 @@ final class UpdateVerifier {
     }
     static void verify(Context context, File apk, UpdateClient.Candidate candidate) throws Exception {
         PackageManager manager = context.getPackageManager();
-        int flags = PackageManager.GET_META_DATA | (Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES);
+        // Early Android 9 archive parsers can omit SigningInfo. Request the
+        // legacy certificate array too, while preferring current signers.
+        int flags = PackageManager.GET_META_DATA | PackageManager.GET_SIGNATURES;
+        if (Build.VERSION.SDK_INT >= 28) flags |= PackageManager.GET_SIGNING_CERTIFICATES;
         PackageInfo installed = manager.getPackageInfo(context.getPackageName(), flags);
         PackageInfo incoming = manager.getPackageArchiveInfo(apk.getAbsolutePath(), flags);
         if (installed.applicationInfo == null || installed.applicationInfo.metaData == null

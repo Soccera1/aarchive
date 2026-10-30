@@ -3,6 +3,12 @@
 The Android application bundles the following checksum-pinned native libraries.
 Their copyright and license texts are reproduced in `app/src/main/assets/licenses/`.
 
+The Java UI also bundles Material Components for Android 1.14.0 and its AndroidX
+dependencies (including AppCompat, Lifecycle and Core), from the Android Open
+Source Project, under Apache 2.0. See `material-LICENSE.txt` and
+https://github.com/material-components/material-components-android/tree/1.14.0.
+The back-arrow icon follows the Apache-licensed Material Icons design.
+
 - libarchive: https://github.com/libarchive/libarchive/tree/v3.8.10 — primarily BSD
   licenses; see `libarchive-COPYING.txt` for the complete upstream notices.
 - XZ/liblzma: https://github.com/tukaani-project/xz/tree/v5.8.3 — see
@@ -22,7 +28,7 @@ Their copyright and license texts are reproduced in `app/src/main/assets/license
   `expat-COPYING.txt`; used by libarchive's XAR reader.
 - Mbed TLS 3.6.7: https://github.com/Mbed-TLS/mbedtls/tree/mbedtls-3.6.7 —
   distributed under Apache 2.0, `mbedtls-LICENSE.txt`; supplies archive digests and
-  ZIP encryption primitives. TLS networking is not used by the app.
+  ZIP encryption primitives. Update checks use Android's HTTPS stack.
 - LZOKay, commit `db2df1fcbebc2ed06c10f727f72567d40f06a2be`:
   https://github.com/AxioDL/lzokay — MIT license, `lzokay-LICENSE.txt`. AArchive's
   compatibility adapter exposes its LZO1X implementation to libarchive. GPL liblzo
