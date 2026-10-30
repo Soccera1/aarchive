@@ -66,6 +66,7 @@ jobs:
           variant="${VARIANT,,}"
           apk="app/build/outputs/apk/$variant/app-$variant.apk"
           ./scripts/verify-universal-apk.sh "$apk"
+          python3 scripts/verify-native-optimization.py
           mkdir -p dist
           name=aarchive-master-universal.apk
           version_name="$VERSION-master.$GITHUB_RUN_NUMBER"
@@ -83,6 +84,12 @@ jobs:
         with:
           name: aarchive-universal
           path: dist/*
+          if-no-files-found: error
+      - name: Save R8 mapping for crash reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarchive-r8-mapping
+          path: app/build/outputs/mapping/*/mapping.txt
           if-no-files-found: error
   native-tests:
     runs-on: ubuntu-24.04

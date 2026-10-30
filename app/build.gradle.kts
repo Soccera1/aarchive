@@ -4,6 +4,7 @@ val masterBuildNumber = providers.gradleProperty("masterBuildNumber").map { it.t
 val updateChannel = providers.gradleProperty("updateChannel").orElse("none").get()
 val updateRepository = providers.gradleProperty("updateRepository").orElse("Soccera1/aarchive").get()
 val appVersion = providers.gradleProperty("appVersion").orElse("1.0").get()
+val updaterTests = providers.gradleProperty("updaterTests").map { it.toBooleanStrict() }.orElse(false)
 require(updateChannel in listOf("none", "github-master", "github-release")) { "Invalid updateChannel" }
 require(updateRepository.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))) { "Invalid updateRepository" }
 require(appVersion.matches(Regex("[0-9]+(\\.[0-9]+){1,3}"))) { "Invalid appVersion" }
@@ -36,6 +37,13 @@ android {
         }
     }
     buildTypes {
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (updaterTests.get()) proguardFiles("proguard-updater-tests.pro")
+            externalNativeBuild { cmake { arguments += "-DAARCHIVE_OPTIMIZED=ON" } }
+        }
         create("master") {
             initWith(getByName("release"))
             signingConfig = signingConfigs.getByName("master")

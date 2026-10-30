@@ -35,6 +35,13 @@ The first build needs internet access to download Gradle and checksum-pinned
 native dependencies. Archive operations work offline and do not need broad storage
 permissions. GitHub release builds use internet access for update checks.
 
+`release`, `master`, and `versioned` builds enable R8 code shrinking, optimization,
+and obfuscation, plus resource shrinking. Native code and bundled C/C++ libraries
+use `-O3` and ThinLTO with LLVM's linker. JNI entry points, constructors, and
+cancellation fields have explicit keep rules. Debug builds retain their normal
+unoptimized, debuggable configuration. R8 mappings are saved under
+`app/build/outputs/mapping/` and uploaded as a separate workflow artifact.
+
 ## Rolling master release
 
 Each successful push to `master` updates the
@@ -236,6 +243,8 @@ ANDROID_SERIAL=emulator-5554 ./tests/run-android-update-tests.sh
 ```
 
 This script replaces `dev.aarchive` and its test package on the selected emulator.
+Its `-PupdaterTests=true` builds keep internal APIs used by the separate test APK;
+these additional test rules are excluded from published builds.
 It builds versions 7 and 8, tests both channel policies, corrupt/truncated downloads,
 different signing keys, APK metadata, and read-only installer access. It refuses
 physical devices. Afterward, this starts a mocked update offer for manually
