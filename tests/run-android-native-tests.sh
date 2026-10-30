@@ -17,7 +17,9 @@ javac --release 17 -d "$test_dir/classes" \
     "$project_dir/app/src/main/java/dev/aarchive/ArchivePath.java" \
     "$project_dir/app/src/main/java/dev/aarchive/ArchivePlan.java" \
     "$project_dir/app/src/main/java/dev/aarchive/NativeArchive.java" \
-    "$project_dir/tests/ArchiveTest.java"
+    "$project_dir/app/src/main/java/dev/aarchive/NativeWriter.java" \
+    "$project_dir/app/src/main/java/dev/aarchive/CreationFormat.java" \
+    "$project_dir/tests/ArchiveTest.java" "$project_dir/tests/WriterTest.java"
 jar --create --file "$test_dir/tests.jar" -C "$test_dir/classes" .
 "$ANDROID_HOME/build-tools/35.0.0/d8" --min-api 26 \
     --lib "$ANDROID_HOME/platforms/android-35/android.jar" \
@@ -27,3 +29,4 @@ unzip -p "$apk" "lib/$abi/libaarchive.so" > "$test_dir/libaarchive.so"
 adb shell mkdir -p "$device_dir"
 adb push "$test_dir/dex/classes.dex" "$test_dir/libaarchive.so" "$test_dir/fixtures" "$device_dir/" >/dev/null
 adb shell "CLASSPATH=$device_dir/classes.dex app_process -Djava.library.path=$device_dir /system/bin dev.aarchive.ArchiveTest $device_dir/fixtures"
+adb shell "CLASSPATH=$device_dir/classes.dex app_process -Djava.library.path=$device_dir /system/bin dev.aarchive.WriterTest $device_dir/fixtures"

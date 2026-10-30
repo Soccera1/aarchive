@@ -4,6 +4,7 @@
         android:icon="@drawable/ic_archive" android:allowBackup="false"
         android:fullBackupContent="@xml/full_backup_rules"
         android:dataExtractionRules="@xml/backup_rules" android:supportsRtl="true">
+        <activity android:name=".CreateActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

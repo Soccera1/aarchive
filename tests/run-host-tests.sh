@@ -14,5 +14,9 @@ javac -d "$test_dir/classes" \
     "$project_dir/app/src/main/java/dev/aarchive/ArchivePath.java" \
     "$project_dir/app/src/main/java/dev/aarchive/ArchivePlan.java" \
     "$project_dir/app/src/main/java/dev/aarchive/NativeArchive.java" \
-    "$project_dir/tests/ArchiveTest.java"
+    "$project_dir/app/src/main/java/dev/aarchive/NativeWriter.java" \
+    "$project_dir/app/src/main/java/dev/aarchive/CreationFormat.java" \
+    "$project_dir/tests/ArchiveTest.java" "$project_dir/tests/WriterTest.java"
 java -Djava.library.path="$native_build_dir" -cp "$test_dir/classes" dev.aarchive.ArchiveTest "$test_dir/fixtures"
+java -Djava.library.path="$native_build_dir" -cp "$test_dir/classes" dev.aarchive.WriterTest "$test_dir/fixtures"
+python3 "$project_dir/tests/verify-created.py" "$test_dir/fixtures"

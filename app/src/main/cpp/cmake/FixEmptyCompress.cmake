@@ -1,0 +1,15 @@
+# libarchive 3.8.10 emits an uninitialized first code for empty .Z input,
+# which decodes to a spurious NUL byte. An empty stream needs only its header.
+set(compress_source "${libarchive_SOURCE_DIR}/libarchive/archive_write_add_filter_compress.c")
+file(READ "${compress_source}" compress_text)
+set(before "\tret = output_code(f, compress->cur_code);\n\tif (ret != ARCHIVE_OK)\n\t\treturn ret;\n\tret = output_flush(f);")
+set(after "\tif (compress->in_count > 0) {\n\t\tret = output_code(f, compress->cur_code);\n\t\tif (ret != ARCHIVE_OK) return ret;\n\t}\n\tret = output_flush(f);")
+string(FIND "${compress_text}" "${after}" patched)
+if(patched EQUAL -1)
+    string(FIND "${compress_text}" "${before}" location)
+    if(location EQUAL -1)
+        message(FATAL_ERROR "The libarchive empty-compress fix needs review")
+    endif()
+    string(REPLACE "${before}" "${after}" compress_text "${compress_text}")
+    file(WRITE "${compress_source}" "${compress_text}")
+endif()

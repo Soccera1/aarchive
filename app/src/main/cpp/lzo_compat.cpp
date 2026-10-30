@@ -5,7 +5,7 @@
 
 extern "C" {
 int lzo_init() { return LZO_E_OK; }
-unsigned lzo_version() { return 0x20a; } // API compatibility version, not the LZOKay release.
+unsigned lzo_version() { return 0x20a0; } // LZO 2.10 API compatibility, not the LZOKay release.
 const char* lzo_version_string() { return "LZOKay compatibility backend"; }
 lzo_uint32 lzo_adler32(lzo_uint32 checksum, const unsigned char* input, lzo_uint length) {
     while (length) {

@@ -18,7 +18,7 @@ public final class MainActivity extends Activity {
     private static final int INK = 0xff202c27, MUTED = 0xff63716a, GREEN = 0xff285a46, PAPER = 0xfff6f7f2;
     private ArchiveModel model;
     private TextView archiveName, archiveInfo, status, count, empty;
-    private Button open, password, extract, select, cancel;
+    private Button open, createArchive, password, extract, select, cancel;
     private EditText search;
     private ProgressBar progress;
     private LinearLayout archiveCard, queryControls, selectionControls, bottomActions;
@@ -56,12 +56,16 @@ public final class MainActivity extends Activity {
         boolean compact = getResources().getConfiguration().screenHeightDp < 600;
         LinearLayout compactHeader = row();
         open = button("Open file", true);
+        createArchive = button("Create", false);
+        createArchive.setOnClickListener(v -> startActivity(new Intent(this, CreateActivity.class)));
         if (compact) {
-            compactHeader.addView(open, new LinearLayout.LayoutParams(dp(150), dp(48)));
+            compactHeader.addView(open, new LinearLayout.LayoutParams(dp(120), dp(48)));
+            compactHeader.addView(createArchive, new LinearLayout.LayoutParams(dp(100), dp(48)));
             root.addView(compactHeader);
         } else {
             LinearLayout fileActions = row();
             fileActions.addView(open, new LinearLayout.LayoutParams(0, dp(48), 1));
+            fileActions.addView(createArchive, new LinearLayout.LayoutParams(dp(90), dp(48)));
             Button formats = button("Formats", false);
             formats.setOnClickListener(v -> showFormats());
             fileActions.addView(formats, new LinearLayout.LayoutParams(dp(100), dp(48)));
@@ -192,6 +196,7 @@ public final class MainActivity extends Activity {
         status.setText(model.status);
         status.setVisibility(model.status.isEmpty() ? View.GONE : View.VISIBLE);
         open.setEnabled(!model.busy);
+        createArchive.setEnabled(!model.busy);
         password.setEnabled(!model.busy && model.hasSource());
         password.setVisibility(model.format.startsWith("Compressed file") && model.ready ? View.GONE : View.VISIBLE);
         search.setEnabled(!model.busy && model.ready);
@@ -243,7 +248,8 @@ public final class MainActivity extends Activity {
 
     private void showFormats() {
         new AlertDialog.Builder(this).setTitle("Supported formats")
-                .setMessage("Archives\nZIP, 7z, RAR/RAR5, TAR, CPIO, CAB, ISO, AR/DEB, RPM, XAR, LHA/LZH, WARC and other libarchive containers.\n\n"
+                .setMessage("Create\nZIP, 7z, TAR, CPIO, compressed TAR/CPIO, and standalone compressed files. Select files or folders, a codec, and a save location.\n\n"
+                        + "Read archives\nZIP, 7z, RAR/RAR5, TAR, CPIO, CAB, ISO, AR/DEB, RPM, XAR, LHA/LZH, WARC and other libarchive containers.\n\n"
                         + "Compressed files\ngzip (.gz), bzip2 (.bz2), XZ, LZMA, Zstandard (.zst), LZ4, lzip (.lz), LZOP (.lzo), Unix compress (.Z), "
                         + "Brotli (.br), Snappy (.sz / .snappy), zlib (.zlib / .zz), raw DEFLATE (.deflate) and uuencode.\n\n"
                         + "Standalone streams become one file; compressed archives show their entries. Brotli and raw DEFLATE need their filename extension. "

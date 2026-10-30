@@ -1,6 +1,11 @@
 <resources>
     <string name="cancelling">Cancelling…</string>
     <string name="selection_count">%1$d SHOWN  ·  %2$d SELECTED</string>
+    <string name="compression_level">Compression level: %1$d</string>
+    <plurals name="source_count">
+        <item quantity="one">%d source</item>
+        <item quantity="other">%d sources</item>
+    </plurals>
     <plurals name="entry_count">
         <item quantity="one">%d entry</item>
         <item quantity="other">%d entries</item>

@@ -1,10 +1,10 @@
 # AArchive
 
-An Android app for browsing and extracting archives and compressed files, built
+An Android app for creating, browsing, and extracting archives and compressed files, built
 with libarchive and additional native codecs. Requires Android 8.0 or newer;
 supports ARMv7, ARMv8, x86, and x86-64 in one universal APK.
 
-[Screenshots](docs/screenshot.png) · [Standalone gzip](docs/standalone-gzip.png)
+[Browse](docs/screenshot.png) · [Create](docs/create.png) · [Standalone gzip](docs/standalone-gzip.png)
 
 ## Build
 
@@ -79,6 +79,23 @@ show their entries. Choose an output folder through Android's folder picker.
 Use **Password** to retry an encrypted archive. Tap an operation's status message
 to read its full details.
 
+Choose **Create** to add files or folders, select an output format and compression,
+then choose where to save the result. Folders include their contents and empty
+subfolders. **Compressed file** compresses one file without an archive container;
+choose TAR or CPIO with compression for multiple files, such as `.tar.gz` or
+`.cpio.zst`. Compression levels are available where the encoder supports them.
+
+| Creation format | Compression choices |
+| --- | --- |
+| ZIP | Store, Deflate, Bzip2, LZMA, XZ, Zstandard |
+| 7z | Store, LZMA2, LZMA, Deflate, Bzip2, PPMd, Zstandard |
+| TAR / CPIO | Uncompressed, or any standalone codec below |
+| Standalone file | Gzip, Bzip2, XZ, LZMA, Zstandard, LZ4, Lzip, LZOP, Unix compress, Brotli, framed Snappy, Zlib, raw Deflate, Uuencode |
+
+ZIP with Deflate and 7z with LZMA2 work with the widest range of readers. Newer
+ZIP and 7z compression methods may require recent extraction software. Creation
+does not support encryption or changing an existing archive.
+
 ## Supported formats
 
 Archives include ZIP, TAR, 7z, RAR/RAR5, CPIO, CAB, ISO, AR/DEB, RPM, XAR,
@@ -104,7 +121,7 @@ Most formats are detected by content. Brotli and raw DEFLATE require their filen
 extensions; raw Snappy requires `.snappy`. Output filenames retain any compression
 suffixes for layers that have not been decoded.
 
-Not supported: archive creation or editing, encrypted 7z, external dictionaries,
+Not supported: editing existing archives, encrypted 7z, external dictionaries,
 lrzip, grzip, bzip3, ZPAQ, LZFSE, WIM, and some container-specific compression
 variants. Snappy support does not include Hadoop/Xerial framing or containers such
 as Parquet. The app's **Formats** dialog also lists these limitations.
@@ -123,6 +140,14 @@ as Parquet. The app's **Formats** dialog also lists these limitations.
 - Cancellation takes effect between I/O calls. On failure or cancellation, the app
   attempts to remove its output folder and reports if partial output remains.
 
+Creation also limits input and output to 10 GiB, with 100,000 entries and 64 path
+components. CPIO's per-file limit is smaller than 4 GiB. Sources are read through
+Android's document picker. The app stages the output and one input file at a time
+in private cache; 7z may need additional temporary storage. Allow free space for
+these files and the saved result. A new output document is created, and the app
+attempts to remove it on failure or cancellation. Source selection survives
+rotation, but not process termination.
+
 ## Development checks
 
 ```sh
@@ -132,10 +157,12 @@ python3 tests/test-master-release.py
 ```
 
 Host tests require a JDK, CMake, Ninja, C/C++ compilers, zlib development headers,
-Python 3.11+, `zip`, `bsdtar` or `7z`, `zstd`, `lz4`, `brotli`, `compress`
+Python 3.11+, `zip`, `bsdtar`, `zstd`, `lz4`, `brotli`, `compress`
 (ncompress), and system liblzo2. They build the same pinned native backends as the
-app and cover formats, filenames, encrypted ZIP, malformed input, and path safety.
-Build output is cached in `build/host-native`.
+app and cover reading and creation, filenames, empty files and folders, encrypted
+ZIP, malformed input, cancellation, and path safety.
+Build output is cached in `build/host-native`. Independent decoders also check
+the created output; recent ZIP/7z methods require bsdtar 3.8+ for those extra checks.
 
 To run the native suite against the APK on a connected Android device or emulator:
 

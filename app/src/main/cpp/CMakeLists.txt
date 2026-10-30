@@ -130,10 +130,12 @@ FetchContent_Declare(libarchive
     URL https://codeload.github.com/libarchive/libarchive/tar.gz/refs/tags/v3.8.10
     URL_HASH SHA256=6ec4ad1b96f92f9fe3a74bac2647e7b122a4496aa804e2fb9b50f2030283582c)
 FetchContent_MakeAvailable(libarchive)
+include(cmake/FixEmptyLzop.cmake)
+include(cmake/FixEmptyCompress.cmake)
 
-add_library(aarchive SHARED bridge.cpp stream_source.cpp)
+add_library(aarchive SHARED bridge.cpp stream_source.cpp writer.cpp)
 target_include_directories(aarchive PRIVATE "${libarchive_SOURCE_DIR}/libarchive")
-target_link_libraries(aarchive PRIVATE archive_static brotlidec snappy)
+target_link_libraries(aarchive PRIVATE archive_static brotlidec brotlienc snappy)
 if(AARCHIVE_HOST_TEST)
     find_package(JNI REQUIRED)
     target_include_directories(aarchive PRIVATE ${JNI_INCLUDE_DIRS})
