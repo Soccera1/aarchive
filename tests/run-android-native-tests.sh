@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"
+apk="${1:-$project_dir/app/build/outputs/apk/debug/app-debug.apk}"
 : "${ANDROID_HOME:?Set ANDROID_HOME to an Android SDK containing platform 35 and Build Tools 35.0.0}"
 test_dir="$(mktemp -d)"
 device_dir="/data/local/tmp/aarchive-native-tests-$$"
@@ -22,7 +23,7 @@ jar --create --file "$test_dir/tests.jar" -C "$test_dir/classes" .
     --lib "$ANDROID_HOME/platforms/android-35/android.jar" \
     --output "$test_dir/dex" "$test_dir/tests.jar"
 abi="$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
-unzip -p "$project_dir/app/build/outputs/apk/debug/app-debug.apk" "lib/$abi/libaarchive.so" > "$test_dir/libaarchive.so"
+unzip -p "$apk" "lib/$abi/libaarchive.so" > "$test_dir/libaarchive.so"
 adb shell mkdir -p "$device_dir"
 adb push "$test_dir/dex/classes.dex" "$test_dir/libaarchive.so" "$test_dir/fixtures" "$device_dir/" >/dev/null
 adb shell "CLASSPATH=$device_dir/classes.dex app_process -Djava.library.path=$device_dir /system/bin dev.aarchive.ArchiveTest $device_dir/fixtures"

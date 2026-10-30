@@ -1,5 +1,16 @@
 name: Android
-on: [push, pull_request]
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -17,11 +28,19 @@ jobs:
       - name: Install Android components
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
       - name: Build and lint
-        run: ./gradlew assembleDebug lintDebug
+        run: ./gradlew assembleMaster lintMaster -PmasterBuildNumber="$GITHUB_RUN_NUMBER"
+      - name: Verify and package universal APK
+        run: |
+          ./scripts/verify-universal-apk.sh app/build/outputs/apk/master/app-master.apk
+          mkdir -p dist
+          cp app/build/outputs/apk/master/app-master.apk dist/aarchive-master-universal.apk
+          cd dist
+          sha256sum aarchive-master-universal.apk > aarchive-master-universal.apk.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: aarchive-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: aarchive-master-universal
+          path: dist/*
+          if-no-files-found: error
   native-tests:
     runs-on: ubuntu-24.04
     steps:
@@ -37,3 +56,22 @@ jobs:
             build-essential cmake ninja-build zlib1g-dev python3 \
             libarchive-tools zip zstd lz4 brotli ncompress liblzo2-2
       - run: ./tests/run-host-tests.sh
+      - name: Test rolling release publication
+        run: python3 tests/test-master-release.py
+
+  master-release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [build, native-tests]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: aarchive-master-universal
+          path: dist
+      - name: Publish rolling master prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/publish-master-release.sh dist

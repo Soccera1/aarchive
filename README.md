@@ -2,7 +2,7 @@
 
 An Android app for browsing and extracting archives and compressed files, built
 with libarchive and additional native codecs. Requires Android 8.0 or newer;
-supports ARM64 and x86-64.
+supports ARMv7, ARMv8, x86, and x86-64 in one universal APK.
 
 [Screenshots](docs/screenshot.png) · [Standalone gzip](docs/standalone-gzip.png)
 
@@ -34,6 +34,36 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 The first build needs internet access to download Gradle and checksum-pinned
 native dependencies. The app itself does not require internet or broad storage
 permissions.
+
+## Rolling master release
+
+Each successful push to `master` updates the
+[master prerelease](https://github.com/Soccera1/aarchive/releases/tag/master),
+after the APK build, lint, and native tests pass. It contains
+`aarchive-master-universal.apk` and a SHA-256 checksum. The rolling `master` tag
+points to the tested commit. Pull requests and other branches do not publish.
+Superseded builds are skipped so an older retry cannot replace a newer build.
+
+| Architecture | Android ABI |
+| --- | --- |
+| x86 | `x86` |
+| x86-64 | `x86_64` |
+| ARMv7 | `armeabi-v7a` |
+| ARMv8 | `arm64-v8a` |
+
+Master APKs use the bundled [public development key](signing/README.md), with no
+repository secrets required. They are testing builds with a stable signing identity
+and increasing CI version codes, so subsequent master builds can update in place.
+Uninstall APKs signed with a different key, including local debug builds, first.
+
+To build the same signed variant locally:
+
+```sh
+./gradlew assembleMaster -PmasterBuildNumber=1
+./scripts/verify-universal-apk.sh app/build/outputs/apk/master/app-master.apk
+```
+
+Use a build number at least as high as the installed master build when updating.
 
 ## Usage
 
@@ -98,6 +128,7 @@ as Parquet. The app's **Formats** dialog also lists these limitations.
 ```sh
 ./gradlew assembleDebug lintDebug
 ./tests/run-host-tests.sh
+python3 tests/test-master-release.py
 ```
 
 Host tests require a JDK, CMake, Ninja, C/C++ compilers, zlib development headers,
@@ -111,6 +142,9 @@ To run the native suite against the APK on a connected Android device or emulato
 ```sh
 ./tests/run-android-native-tests.sh
 ```
+
+Pass an APK path as the first argument to test a different variant, such as
+`app/build/outputs/apk/master/app-master.apk`.
 
 This also requires `ANDROID_HOME`, `adb`, and `unzip`. Set `ANDROID_SERIAL` when
 multiple devices are connected. Native tests do not exercise the GUI or document
