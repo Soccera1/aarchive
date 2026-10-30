@@ -5,6 +5,12 @@ import java.nio.charset.StandardCharsets;
 
 /** Each reader is confined to one worker thread. */
 public final class NativeArchive implements AutoCloseable {
+    /** Allows cancellation while nested layers are being detected and cached. */
+    public static final class Cancellation {
+        private volatile boolean cancelled;
+        public void cancel() { cancelled = true; }
+        public void reset() { cancelled = false; }
+    }
     static { System.loadLibrary("aarchive"); }
     private long handle;
 
@@ -13,8 +19,12 @@ public final class NativeArchive implements AutoCloseable {
     }
 
     public NativeArchive(String path, String password, String displayName) throws IOException {
+        this(path, password, displayName, null);
+    }
+
+    public NativeArchive(String path, String password, String displayName, Cancellation cancellation) throws IOException {
         handle = open(path.getBytes(StandardCharsets.UTF_8), password.getBytes(StandardCharsets.UTF_8),
-                displayName.getBytes(StandardCharsets.UTF_8));
+                displayName.getBytes(StandardCharsets.UTF_8), cancellation);
     }
 
     public ArchiveEntry next() throws IOException { return next(handle); }
@@ -26,7 +36,7 @@ public final class NativeArchive implements AutoCloseable {
         if (handle != 0) { free(handle); handle = 0; }
     }
 
-    private static native long open(byte[] path, byte[] password, byte[] displayName) throws IOException;
+    private static native long open(byte[] path, byte[] password, byte[] displayName, Cancellation cancellation) throws IOException;
     private static native ArchiveEntry next(long handle) throws IOException;
     private static native int read(long handle, byte[] buffer) throws IOException;
     private static native String format(long handle);

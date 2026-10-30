@@ -24,6 +24,7 @@ final class ArchiveModel {
     private String password = "";
     private String sourceName = "Archive";
     volatile boolean cancelled;
+    private final NativeArchive.Cancellation readCancellation = new NativeArchive.Cancellation();
     boolean busy;
     boolean ready;
     String name = "No file open";
@@ -40,7 +41,8 @@ final class ArchiveModel {
     private void checkCancelled() throws IOException {
         if (cancelled) throw new IOException("Operation cancelled.");
     }
-    private void start() { busy = true; cancelled = false; notifyChanged(); }
+    private void start() { busy = true; cancelled = false; readCancellation.reset(); notifyChanged(); }
+    void cancel() { cancelled = true; readCancellation.cancel(); }
     private void finish(String message) {
         main.post(() -> { busy = false; status = message; notifyChanged(); });
     }
@@ -108,7 +110,7 @@ final class ArchiveModel {
     private void scan() throws IOException {
         List<ArchiveEntry> result = new ArrayList<>();
         String detected;
-        try (NativeArchive archive = new NativeArchive(source.getAbsolutePath(), password, sourceName)) {
+        try (NativeArchive archive = new NativeArchive(source.getAbsolutePath(), password, sourceName, readCancellation)) {
             ArchiveEntry entry;
             while ((entry = archive.next()) != null) {
                 checkCancelled();
@@ -151,7 +153,7 @@ final class ArchiveModel {
                 long total = 0;
                 int completed = 0;
                 int index = 0;
-                try (NativeArchive archive = new NativeArchive(source.getAbsolutePath(), password, sourceName)) {
+                try (NativeArchive archive = new NativeArchive(source.getAbsolutePath(), password, sourceName, readCancellation)) {
                     ArchiveEntry entry;
                     while ((entry = archive.next()) != null) {
                         checkCancelled();
@@ -218,7 +220,7 @@ final class ArchiveModel {
     }
 
     void close() {
-        cancelled = true;
+        cancel();
         changed = null;
         worker.execute(() -> { if (source != null) source.delete(); password = ""; });
         worker.shutdown();

@@ -159,7 +159,7 @@ public final class MainActivity extends Activity {
         LinearLayout actions = row();
         bottomActions = actions;
         cancel = button("Cancel", false);
-        cancel.setOnClickListener(v -> { model.cancelled = true; cancel.setEnabled(false); status.setText(R.string.cancelling); });
+        cancel.setOnClickListener(v -> { model.cancel(); cancel.setEnabled(false); status.setText(R.string.cancelling); });
         actions.addView(cancel, new LinearLayout.LayoutParams(-2, dp(52)));
         extract = button("Extract all", true);
         actions.addView(extract, new LinearLayout.LayoutParams(0, dp(52), 1));
@@ -252,7 +252,7 @@ public final class MainActivity extends Activity {
                         + "Read archives\nZIP, 7z, RAR/RAR5, TAR, CPIO, CAB, ISO, AR/DEB, RPM, XAR, LHA/LZH, WARC and other libarchive containers.\n\n"
                         + "Compressed files\ngzip (.gz), bzip2 (.bz2), XZ, LZMA, Zstandard (.zst), LZ4, lzip (.lz), LZOP (.lzo), Unix compress (.Z), "
                         + "Brotli (.br), Snappy (.sz / .snappy), zlib (.zlib / .zz), raw DEFLATE (.deflate) and uuencode.\n\n"
-                        + "Standalone streams become one file; compressed archives show their entries. Brotli and raw DEFLATE need their filename extension. "
+                        + "Decoded bytes are checked for further compression and archive layers. Single-file archives unwrap automatically when their file is another recognized archive or compressed stream; multi-file archives show their entries. Nesting is limited to 32 layers. Brotli and raw DEFLATE need their filename extension. "
                         + "Raw Snappy blocks are limited to 64 MiB.\n\n"
                         + "Some formats still need additional engines: lrzip, grzip, bzip3, ZPAQ, LZFSE and WIM are not supported. "
                         + "Traditional and AES-encrypted ZIP are supported. Encrypted 7z and external dictionaries are not supported.")

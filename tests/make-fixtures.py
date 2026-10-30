@@ -14,6 +14,7 @@ import tarfile
 import zipfile
 import zlib
 import struct
+from stress_fixture import generate as generate_stress_fixture
 
 root = pathlib.Path(sys.argv[1])
 path = "日本語/hello 🌿.txt"
@@ -161,3 +162,118 @@ bad_snappy = bytearray(encoded["sz"])
 bad_snappy[14] ^= 1
 (root / "bad-checksum.sz").write_bytes(bad_snappy)
 (root / "reserved.sz").write_bytes(magic + b"\x02\x00\x00\x00")
+
+# ZIP/7z need seekable input after their outer compression has been removed.
+# Produce both stored and internally compressed containers independently.
+with zipfile.ZipFile(root / "stored.zip", "w", zipfile.ZIP_STORED) as archive:
+    archive.writestr(path, payload)
+with zipfile.ZipFile(root / "empty.zip", "w"):
+    pass
+if shutil.which("bsdtar"):
+    subprocess.run(["bsdtar", "--format=7zip", "--options=7zip:compression=store",
+                    "-cf", "stored.7z", path], cwd=root, check=True)
+else:
+    subprocess.run(["7z", "a", "-mx=0", "stored.7z", path], cwd=root, check=True, stdout=subprocess.DEVNULL)
+
+def wrap(data, suffix):
+    if suffix == "gz": return gzip.compress(data)
+    if suffix == "bz2": return bz2.compress(data)
+    if suffix == "xz": return lzma.compress(data)
+    if suffix == "lzma": return lzma.compress(data, format=lzma.FORMAT_ALONE)
+    if suffix == "zlib": return zlib.compress(data)
+    if suffix == "deflate": return zlib.compress(data, wbits=-15)
+    if suffix == "snappy": return snappy_literal(data)
+    if suffix == "sz":
+        framed = bytearray(magic)
+        for offset in range(0, len(data), 65536):
+            chunk = data[offset:offset + 65536]
+            body = struct.pack("<I", crc32c(chunk)) + snappy_literal(chunk)
+            framed.extend(b"\0" + len(body).to_bytes(3, "little") + body)
+        return bytes(framed)
+    if suffix == "uu":
+        return b"begin 644 archive\n" + b"".join(binascii.b2a_uu(data[i:i + 45])
+            for i in range(0, len(data), 45)) + b"`\nend\n"
+    if suffix == "lz":
+        body = lzma.compress(data, format=lzma.FORMAT_RAW,
+            filters=[dict(id=lzma.FILTER_LZMA1, dict_size=4096, lc=3, lp=0, pb=2)])
+        return b"LZIP\x01\x0c" + body + struct.pack("<IQQ", zlib.crc32(data), len(data), 6 + len(body) + 20)
+    if suffix == "lzo":
+        output = ctypes.create_string_buffer(len(data) + len(data) // 16 + 67)
+        size = ctypes.c_size_t()
+        assert lzo.lzo1x_1_compress(data, len(data), output, ctypes.byref(size), workspace) == 0
+        block = output.raw[:size.value] if size.value < len(data) else data
+        # Data checksum only; stored blocks have no compressed-data checksum.
+        block_header = struct.pack(">III", len(data), len(block), zlib.adler32(data))
+        lzo_header = struct.pack(">HHHBBIIIIB", 0x1030, 0x20a0, 0x940, 1, 5, 1, 0x81a4, 0, 0, 0)
+        return (b"\x89LZO\0\r\n\x1a\n" + lzo_header + struct.pack(">I", zlib.adler32(lzo_header))
+                + block_header + block + bytes(4))
+    command = {"zst": ["zstd", "-q", "-c"], "lz4": ["lz4", "-q", "-c"],
+               "br": ["brotli", "-c"], "Z": ["compress", "-f", "-c"]}[suffix]
+    return subprocess.run(command, input=data, check=True, stdout=subprocess.PIPE).stdout
+
+for container in ["sample.zip", "stored.zip", "sample.7z", "stored.7z"]:
+    data = (root / container).read_bytes()
+    for suffix in encoded:
+        (root / (container + "." + suffix)).write_bytes(wrap(data, suffix))
+for container in ["secret.zip", "aes128.zip", "aes256.zip", "aes256-stored.zip", "empty.zip"]:
+    (root / (container + ".gz")).write_bytes(wrap((root / container).read_bytes(), "gz"))
+(root / "sample.7z.gz.xz").write_bytes(wrap(wrap((root / "sample.7z").read_bytes(), "gz"), "xz"))
+(root / "sample.zip.gz.br").write_bytes(wrap(wrap((root / "sample.zip").read_bytes(), "gz"), "br"))
+bad_wrapper = bytearray(wrap((root / "sample.7z").read_bytes(), "gz"))
+bad_wrapper[-8] ^= 0x40
+(root / "bad-wrapper.7z.gz").write_bytes(bad_wrapper)
+(root / "truncated-wrapper.zip.xz").write_bytes(wrap((root / "sample.zip").read_bytes(), "xz")[:-10])
+
+def tar_one(data, name="payload.bin"):
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w") as archive:
+        # Directory entries don't prevent an otherwise single-file unwrap.
+        directory = tarfile.TarInfo("nested")
+        directory.type = tarfile.DIRTYPE
+        archive.addfile(directory)
+        entry = tarfile.TarInfo("nested/" + name)
+        entry.size = len(data)
+        archive.addfile(entry, io.BytesIO(data))
+    return output.getvalue()
+
+# gzip -> TAR -> 7z -> LZ4 -> XZ -> TAR -> gzip -> ZIP -> ordinary file.
+# Every contained file is deliberately named .bin: signatures must drive detection.
+chain = wrap(tar_one(wrap((root / "sample.zip").read_bytes(), "gz")), "xz")
+chain = wrap(chain, "lz4")
+(root / "chain-input.bin").write_bytes(chain)
+if shutil.which("bsdtar"):
+    subprocess.run(["bsdtar", "--format=7zip", "-cf", "chain.7z", "chain-input.bin"], cwd=root, check=True)
+else:
+    subprocess.run(["7z", "a", "chain.7z", "chain-input.bin"], cwd=root, check=True, stdout=subprocess.DEVNULL)
+(root / "chain.bin").write_bytes(wrap(tar_one((root / "chain.7z").read_bytes()), "gz"))
+
+# A standalone compressed file in a one-file container is unwrapped too.
+(root / "standalone-chain.bin").write_bytes(tar_one(wrap(csv, "xz"), "table.csv.xz"))
+with zipfile.ZipFile(root / "multiple-nested.zip", "w") as archive:
+    archive.writestr("inner.zip", (root / "sample.zip").read_bytes())
+    archive.writestr("readme.txt", b"Keep this archive's entries visible.\n")
+with tarfile.open(root / "unsafe-nested.tar", "w") as archive:
+    entry = tarfile.TarInfo("../inner.zip")
+    entry.size = (root / "sample.zip").stat().st_size
+    archive.addfile(entry, io.BytesIO((root / "sample.zip").read_bytes()))
+deep = (root / "sample.zip").read_bytes()
+for _ in range(34):
+    deep = tar_one(deep)
+(root / "too-deep.bin").write_bytes(deep)
+
+# Force seeks beyond libarchive's initial read buffer, for both ZIP and 7z.
+large = bytes((i * 73 + (i >> 8)) & 255 for i in range(160000))
+(root / "seek-data.bin").write_bytes(large)
+with zipfile.ZipFile(root / "seek.zip", "w", zipfile.ZIP_STORED) as archive:
+    archive.writestr("seek-data.bin", large)
+    archive.writestr("tail.txt", payload)
+if shutil.which("bsdtar"):
+    subprocess.run(["bsdtar", "--format=7zip", "--options=7zip:compression=store", "-cf", "seek.7z",
+                    "seek-data.bin", "chain-input.bin"], cwd=root, check=True)
+else:
+    subprocess.run(["7z", "a", "-mx=0", "seek.7z", "seek-data.bin", "chain-input.bin"], cwd=root, check=True, stdout=subprocess.DEVNULL)
+for container in ["seek.zip", "seek.7z"]:
+    (root / (container + ".gz")).write_bytes(wrap((root / container).read_bytes(), "gz"))
+
+generate_stress_fixture(root)
+shutil.copyfile(pathlib.Path(__file__).parent / "fixtures" / "many-layers.bin", root / "committed-many-layers.bin")

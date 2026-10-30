@@ -1,0 +1,234 @@
+{
+  "layer_order": "innermost to outermost",
+  "layer_count": 32,
+  "payload_name": "hello.txt",
+  "payload_bytes": 13,
+  "payload_sha256": "03ba204e50d126e4674c005e04d82e84c21366780af1f43bd54a37816b6ab340",
+  "fixture_sha256": "3dbaea3b1264e783d1412ec346f1fd5ea0dbe1a97672a69dfbb2d7391f3b061e",
+  "layers": [
+    {
+      "layer": 1,
+      "format": "zip",
+      "input_name": "hello.txt",
+      "output_name": "layer-01.bin",
+      "bytes": 131
+    },
+    {
+      "layer": 2,
+      "format": "gz",
+      "input_name": "layer-01.bin",
+      "output_name": "layer-01.bin.gz",
+      "bytes": 98
+    },
+    {
+      "layer": 3,
+      "format": "tar",
+      "input_name": "layer-01.bin.gz",
+      "output_name": "layer-03.bin",
+      "bytes": 10240
+    },
+    {
+      "layer": 4,
+      "format": "bz2",
+      "input_name": "layer-03.bin",
+      "output_name": "layer-03.bin.bz2",
+      "bytes": 287
+    },
+    {
+      "layer": 5,
+      "format": "xz",
+      "input_name": "layer-03.bin.bz2",
+      "output_name": "layer-03.bin.bz2.xz",
+      "bytes": 348
+    },
+    {
+      "layer": 6,
+      "format": "tar",
+      "input_name": "layer-03.bin.bz2.xz",
+      "output_name": "layer-06.bin",
+      "bytes": 10240
+    },
+    {
+      "layer": 7,
+      "format": "zst",
+      "input_name": "layer-06.bin",
+      "output_name": "layer-06.bin.zst",
+      "bytes": 471
+    },
+    {
+      "layer": 8,
+      "format": "lz4",
+      "input_name": "layer-06.bin.zst",
+      "output_name": "layer-06.bin.zst.lz4",
+      "bytes": 490
+    },
+    {
+      "layer": 9,
+      "format": "tar",
+      "input_name": "layer-06.bin.zst.lz4",
+      "output_name": "layer-09.bin",
+      "bytes": 10240
+    },
+    {
+      "layer": 10,
+      "format": "lz",
+      "input_name": "layer-09.bin",
+      "output_name": "layer-09.bin.lz",
+      "bytes": 609
+    },
+    {
+      "layer": 11,
+      "format": "lzo",
+      "input_name": "layer-09.bin.lz",
+      "output_name": "layer-09.bin.lz.lzo",
+      "bytes": 663
+    },
+    {
+      "layer": 12,
+      "format": "cpio",
+      "input_name": "layer-09.bin.lz.lzo",
+      "output_name": "layer-12.bin",
+      "bytes": 10240
+    },
+    {
+      "layer": 13,
+      "format": "br",
+      "input_name": "layer-12.bin",
+      "output_name": "layer-12.bin.br",
+      "bytes": 767
+    },
+    {
+      "layer": 14,
+      "format": "tar",
+      "input_name": "layer-12.bin.br",
+      "output_name": "layer-14.bin",
+      "bytes": 10240
+    },
+    {
+      "layer": 15,
+      "format": "zlib",
+      "input_name": "layer-14.bin",
+      "output_name": "layer-14.bin.zlib",
+      "bytes": 962
+    },
+    {
+      "layer": 16,
+      "format": "deflate",
+      "input_name": "layer-14.bin.zlib",
+      "output_name": "layer-14.bin.zlib.deflate",
+      "bytes": 967
+    },
+    {
+      "layer": 17,
+      "format": "zip",
+      "input_name": "layer-14.bin.zlib.deflate",
+      "output_name": "layer-17.bin",
+      "bytes": 1120
+    },
+    {
+      "layer": 18,
+      "format": "gz",
+      "input_name": "layer-17.bin",
+      "output_name": "layer-17.bin.gz",
+      "bytes": 1095
+    },
+    {
+      "layer": 19,
+      "format": "tar",
+      "input_name": "layer-17.bin.gz",
+      "output_name": "layer-19.bin",
+      "bytes": 10240
+    },
+    {
+      "layer": 20,
+      "format": "lzma",
+      "input_name": "layer-19.bin",
+      "output_name": "layer-19.bin.lzma",
+      "bytes": 1239
+    },
+    {
+      "layer": 21,
+      "format": "Z",
+      "input_name": "layer-19.bin.lzma",
+      "output_name": "layer-19.bin.lzma.Z",
+      "bytes": 1557
+    },
+    {
+      "layer": 22,
+      "format": "tar",
+      "input_name": "layer-19.bin.lzma.Z",
+      "output_name": "layer-22.bin",
+      "bytes": 10240
+    },
+    {
+      "layer": 23,
+      "format": "sz",
+      "input_name": "layer-22.bin",
+      "output_name": "layer-22.bin.sz",
+      "bytes": 10263
+    },
+    {
+      "layer": 24,
+      "format": "uu",
+      "input_name": "layer-22.bin.sz",
+      "output_name": "layer-22.bin.sz.uu",
+      "bytes": 14168
+    },
+    {
+      "layer": 25,
+      "format": "7z",
+      "input_name": "layer-22.bin.sz.uu",
+      "output_name": "layer-25.bin",
+      "bytes": 10240
+    },
+    {
+      "layer": 26,
+      "format": "gz",
+      "input_name": "layer-25.bin",
+      "output_name": "layer-25.bin.gz",
+      "bytes": 2160
+    },
+    {
+      "layer": 27,
+      "format": "tar",
+      "input_name": "layer-25.bin.gz",
+      "output_name": "layer-27.bin",
+      "bytes": 10240
+    },
+    {
+      "layer": 28,
+      "format": "snappy",
+      "input_name": "layer-27.bin",
+      "output_name": "layer-27.bin.snappy",
+      "bytes": 10245
+    },
+    {
+      "layer": 29,
+      "format": "xz",
+      "input_name": "layer-27.bin.snappy",
+      "output_name": "layer-27.bin.snappy.xz",
+      "bytes": 2348
+    },
+    {
+      "layer": 30,
+      "format": "tar",
+      "input_name": "layer-27.bin.snappy.xz",
+      "output_name": "layer-30.bin",
+      "bytes": 10240
+    },
+    {
+      "layer": 31,
+      "format": "bz2",
+      "input_name": "layer-30.bin",
+      "output_name": "layer-30.bin.bz2",
+      "bytes": 2966
+    },
+    {
+      "layer": 32,
+      "format": "zst",
+      "input_name": "layer-30.bin.bz2",
+      "output_name": "layer-30.bin.bz2.zst",
+      "bytes": 2979
+    }
+  ]
+}

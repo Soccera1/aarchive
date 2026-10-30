@@ -76,6 +76,18 @@ A standalone file such as `report.csv.gz` shows `report.csv` and a **Decompress
 file** action. Compressed archives such as `.tar.gz`, `.tar.zst`, and `.tar.br`
 show their entries. Choose an output folder through Android's folder picker.
 
+Externally compressed ZIP and 7z files, such as `foo.7z.gz` and `bar.zip.xz`,
+also show their inner entries directly. Stored and internally compressed entries
+are supported, along with password-protected ZIPs. This works with all supported
+outer compression codecs. After each layer, supported codecs and archive formats
+are detected again from the decoded bytes. Archives containing exactly one regular
+file (plus optional directories) are automatically unwrapped when that file is
+another recognized archive or compressed stream. This repeats for mixed chains;
+multi-file archives and ordinary single-file archives keep their entries visible.
+Brotli, raw DEFLATE, and raw Snappy still need their filename hints because they
+have no reliable signature. These redundant combinations are read-only; they are
+not offered in **Create**.
+
 Use **Password** to retry an encrypted archive. Tap an operation's status message
 to read its full details.
 
@@ -137,6 +149,10 @@ as Parquet. The app's **Formats** dialog also lists these limitations.
 - Input files are cached privately before opening. Allow space for both the input
   and extracted output. The current file and password are not restored after
   process termination.
+- Decoded layers and single-file archive candidates use additional private cache
+  for detection and seeking. Opening a file is limited to 32 nested layers and
+  10 GiB of cumulative expanded cache data. Temporary data is removed when the
+  reader closes, fails, or is cancelled. Allow space for this cache as well.
 - Cancellation takes effect between I/O calls. On failure or cancellation, the app
   attempts to remove its output folder and reports if partial output remains.
 
@@ -149,6 +165,11 @@ attempts to remove it on failure or cancellation. Source selection survives
 rotation, but not process termination.
 
 ## Development checks
+
+The checked-in [32-layer stress archive](tests/fixtures/many-layers.bin) combines
+20 compression/encoding passes with 12 containers, including eight TARs. Both test
+suites extract it and a newly generated copy, comparing the complete output and
+SHA-256 with the original payload. See its [layer manifest and regeneration notes](tests/fixtures/many-layers.md).
 
 ```sh
 ./gradlew assembleDebug lintDebug
