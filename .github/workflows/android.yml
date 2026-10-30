@@ -2,7 +2,7 @@ name: Android
 on: [push, pull_request]
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -10,6 +10,9 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android components
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
@@ -20,12 +23,17 @@ jobs:
           name: aarchive-debug
           path: app/build/outputs/apk/debug/app-debug.apk
   native-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-      - run: sudo apt-get update && sudo apt-get install -y libarchive-tools ninja-build zip zstd lz4 brotli ncompress liblzo2-2
+      - name: Install native test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build zlib1g-dev python3 \
+            libarchive-tools zip zstd lz4 brotli ncompress liblzo2-2
       - run: ./tests/run-host-tests.sh

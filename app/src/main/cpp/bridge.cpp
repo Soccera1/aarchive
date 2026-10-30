@@ -74,7 +74,9 @@ Java_dev_aarchive_NativeArchive_open(JNIEnv* env, jclass, jbyteArray path, jbyte
                 archive_read_support_filter_lz4, archive_read_support_filter_lzip,
                 archive_read_support_filter_lzop, archive_read_support_filter_compress,
                 archive_read_support_filter_uu, archive_read_support_filter_rpm}) {
-            if (support(a) != ARCHIVE_OK) throw std::runtime_error("A required native compression decoder is unavailable.");
+            if (support(a) != ARCHIVE_OK)
+                throw std::runtime_error(std::string("Compression decoder unavailable: ")
+                    + (archive_error_string(a) ? archive_error_string(a) : "unknown decoder"));
         }
         for (auto support : {archive_read_support_format_ar, archive_read_support_format_cpio,
                 archive_read_support_format_empty, archive_read_support_format_lha,
@@ -83,7 +85,9 @@ Java_dev_aarchive_NativeArchive_open(JNIEnv* env, jclass, jbyteArray path, jbyte
                 archive_read_support_format_cab, archive_read_support_format_rar,
                 archive_read_support_format_rar5, archive_read_support_format_iso9660,
                 archive_read_support_format_zip}) {
-            if (support(a) != ARCHIVE_OK) throw std::runtime_error("A required archive reader is unavailable.");
+            if (support(a) != ARCHIVE_OK)
+                throw std::runtime_error(std::string("Archive reader unavailable: ")
+                    + (archive_error_string(a) ? archive_error_string(a) : "unknown reader"));
         }
         // Mtree's heuristic also matches ordinary CSV/text. Only enable this
         // metadata-manifest format when the user opens a file named for it.
