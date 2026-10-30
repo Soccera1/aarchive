@@ -11,6 +11,8 @@ The back-arrow icon follows the Apache-licensed Material Icons design.
 
 - libarchive: https://github.com/libarchive/libarchive/tree/v3.8.10 — primarily BSD
   licenses; see `libarchive-COPYING.txt` for the complete upstream notices.
+  Local patches fix empty compressed output and stored-RAR CRC validation;
+  see `app/src/main/cpp/cmake/Fix*.cmake`.
 - XZ/liblzma: https://github.com/tukaani-project/xz/tree/v5.8.3 — see
   `xz-COPYING.txt` and the accompanying license texts. Only liblzma is linked;
   command-line tools are disabled.
@@ -24,6 +26,13 @@ The back-arrow icon follows the Apache-licensed Material Icons design.
   `brotli-LICENSE.txt`.
 - Snappy 1.3.1: https://github.com/google/snappy/tree/1.3.1 — BSD license,
   `snappy-COPYING.txt`.
+- Bzip3 1.5.5: https://github.com/iczelia/bzip3/tree/1.5.5 — LGPL 3.0 or later,
+  `bzip3-LICENSE.txt` and `bzip3-GPL-3.0.txt`. Its bundled libsais implementation
+  uses Apache 2.0, `bzip3-libsais-LICENSE.txt`. Linked into this GPLv3 application;
+  upstream command-line tools are used only for tests.
+- LZFSE, commit `e634ca58b4821d9f3d560cdc6df5dec02ffc93fd`:
+  https://github.com/lzfse/lzfse — Apple's BSD 3-clause license,
+  `lzfse-LICENSE.txt`. Includes the LZVN implementation used inside LZFSE streams.
 - Expat 2.9.0: https://github.com/libexpat/libexpat/tree/R_2_9_0 — MIT license,
   `expat-COPYING.txt`; used by libarchive's XAR reader.
 - Mbed TLS 3.6.7: https://github.com/Mbed-TLS/mbedtls/tree/mbedtls-3.6.7 —

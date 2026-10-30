@@ -155,29 +155,39 @@ choose TAR or CPIO with compression for multiple files, such as `.tar.gz` or
 | ZIP | Store, Deflate, Bzip2, LZMA, XZ, Zstandard |
 | 7z | Store, LZMA2, LZMA, Deflate, Bzip2, PPMd, Zstandard |
 | TAR / CPIO | Uncompressed, or any standalone codec below |
-| Standalone file | Gzip, Bzip2, XZ, LZMA, Zstandard, LZ4, Lzip, LZOP, Unix compress, Brotli, framed Snappy, Zlib, raw Deflate, Uuencode |
+| Standalone file | Gzip, Bzip2, Bzip3, XZ, LZMA, Zstandard, LZ4, LZFSE, Lzip, LZOP, Unix compress, Brotli, framed Snappy, Zlib, raw Deflate, Uuencode |
 
 ZIP with Deflate and 7z with LZMA2 work with the widest range of readers. Newer
 ZIP and 7z compression methods may require recent extraction software. Creation
 does not support encryption or changing an existing archive.
+Bzip3 and LZFSE creation use 1 MiB input blocks without a compression-level
+setting. Xerial Snappy and LZVN-specific output are read-only.
 
 ## Supported formats
 
 Archives include ZIP, TAR, 7z, RAR/RAR5, CPIO, CAB, ISO, AR/DEB, RPM, XAR,
 LHA/LZH, and WARC. Traditional and AES-128/AES-256 encrypted ZIP files are supported.
 
+RAR extraction uses libarchive's native RAR and RAR5 readers, including stored
+and compressed files and solid RAR5 archives. Externally compressed RAR files
+and RAR inside nested archive chains are detected by content too. Encrypted RAR,
+legacy RAR4 solid compression, and split/multi-volume archives are not supported.
+RAR creation is not available.
+
 | Compression or encoding | Extensions |
 | --- | --- |
 | gzip, including concatenated members | `.gz`, `.gzip` |
 | bzip2 | `.bz2`, `.bz` |
+| bzip3 | `.bz3`, `.bzip3` |
 | XZ / LZMA | `.xz`, `.lzma` |
 | Zstandard | `.zst`, `.zstd` |
 | LZ4 framed / legacy | `.lz4` |
+| LZFSE, including LZVN and uncompressed blocks in its stream framing | `.lzfse`, `.lzvn` |
 | lzip | `.lz` |
 | LZOP / LZO1X | `.lzo` |
 | Unix compress | `.Z` |
 | Brotli | `.br` |
-| Snappy standard framed / raw blocks | `.sz`, `.snappy` |
+| Snappy standard framed / raw blocks / Xerial framing | `.sz`, `.snappy` |
 | zlib | `.zlib`, `.zz` |
 | Raw DEFLATE | `.deflate` |
 | uuencode | `.uu`, `.uue` |
@@ -187,9 +197,11 @@ extensions; raw Snappy requires `.snappy`. Output filenames retain any compressi
 suffixes for layers that have not been decoded.
 
 Not supported: editing existing archives, encrypted 7z, external dictionaries,
-lrzip, grzip, bzip3, ZPAQ, LZFSE, WIM, and some container-specific compression
-variants. Snappy support does not include Hadoop/Xerial framing or containers such
-as Parquet. The app's **Formats** dialog also lists these limitations.
+lrzip, grzip, ZPAQ, WIM, bare LZVN without LZFSE framing, and some
+container-specific compression variants. Snappy support does not include Hadoop
+framing or containers such as Parquet. The app's **Formats** dialog also lists
+these limitations. Bzip3, LZFSE and Xerial Snappy are detected by magic bytes,
+including at intermediate layers of nested archives.
 
 ## Extraction limits
 
@@ -199,6 +211,10 @@ as Parquet. The app's **Formats** dialog also lists these limitations.
   paths, duplicate paths, and file/directory conflicts are rejected.
 - Imports and total extracted data are limited to 10 GiB, listings to 100,000
   entries, and paths to 64 components. Raw Snappy blocks are limited to 64 MiB.
+- Bzip3's declared block size is limited to 32 MiB to bound decoder memory;
+  files using the upstream default of 16 MiB are supported. LZFSE compressed
+  blocks and Xerial Snappy decoded blocks are limited to 64 MiB. These are
+  per-block limits, not total file-size limits.
 - Input files are cached privately before opening. Allow space for both the input
   and extracted output. The current file and password are not restored after
   process termination.
@@ -235,7 +251,12 @@ Host tests require a JDK, CMake, Ninja, C/C++ compilers, zlib development header
 Python 3.11+, `zip`, `bsdtar`, `zstd`, `lz4`, `brotli`, `compress`
 (ncompress), and system liblzo2. They build the same pinned native backends as the
 app and cover reading and creation, filenames, empty files and folders, encrypted
-ZIP, malformed input, cancellation, and path safety.
+ZIP, malformed input, cancellation, and path safety. RAR fixtures cover stored
+and compressed RAR4/RAR5, solid RAR5, selecting a later solid entry, compression
+wrappers, nested containers, and explicit errors for encrypted RAR. Their
+provenance and license notices are in `tests/fixtures/rar.md`.
+Both native test scripts build upstream Bzip3 and LZFSE command-line tools in
+`build/codec-tools` to generate fixtures and independently verify created files.
 Build output is cached in `build/host-native`. Independent decoders also check
 the created output; recent ZIP/7z methods require bsdtar 3.8+ for those extra checks.
 

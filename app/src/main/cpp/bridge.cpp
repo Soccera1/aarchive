@@ -25,6 +25,7 @@ struct Reader {
     bool first = true;
     bool standalone = false;
     bool empty = false;
+    bool encryptedRar = false;
     ~Reader() { if (value) archive_read_free(value); }
 };
 
@@ -84,6 +85,12 @@ using File = std::unique_ptr<FILE, decltype(&fclose)>;
 std::runtime_error archiveFailure(archive* a) {
     const char* message = archive_error_string(a);
     return std::runtime_error(message ? message : "Could not read archive layer.");
+}
+
+bool encryptedRarEntry(archive* a, archive_entry* entry) {
+    const int format = archive_format(a) & ARCHIVE_FORMAT_BASE_MASK;
+    return entry && (format == ARCHIVE_FORMAT_RAR || format == ARCHIVE_FORMAT_RAR_V5)
+        && archive_entry_is_encrypted(entry);
 }
 
 struct Layers {
@@ -174,6 +181,7 @@ std::unique_ptr<Reader> openContainer(Layers& layers, const std::string& path, c
     if (!allowRaw && (format == ARCHIVE_FORMAT_RAW || format == ARCHIVE_FORMAT_EMPTY)) return nullptr;
     instance->standalone = format == ARCHIVE_FORMAT_RAW || (format == ARCHIVE_FORMAT_EMPTY && allowRaw);
     instance->empty = result == ARCHIVE_EOF;
+    instance->encryptedRar = result == ARCHIVE_OK && encryptedRarEntry(a, instance->pending);
     instance->name = standaloneName(name, 0);
     return instance;
 }
@@ -251,6 +259,9 @@ std::unique_ptr<Reader> openLayer(Layers& layers, const std::string& path, const
         if (result != ARCHIVE_OK && result != ARCHIVE_EOF) throw archiveFailure(a);
         File decoded = result == ARCHIVE_EOF ? layers.cache() : layers.copy(a, depth + filters);
         auto decodedPath = cachedPath(decoded.get());
+        // Release codec workspaces before opening another compression layer.
+        probe.reset();
+        source.reset();
         auto inner = openLayer(layers, decodedPath, standaloneName(name, filters), std::move(decoded), depth + filters, true);
         inner->outerCompression += description;
         return inner;
@@ -286,9 +297,12 @@ std::unique_ptr<Reader> openLayer(Layers& layers, const std::string& path, const
     } while (result == ARCHIVE_OK);
     current = openContainer(layers, path, name, allowRaw);
     if (safe && files == 1 && result == ARCHIVE_EOF) {
+        entry = current->pending;
         for (size_t i = 0; i < fileIndex; i++) {
             if (archive_read_next_header(current->value, &entry) != ARCHIVE_OK) throw archiveFailure(current->value);
         }
+        if (encryptedRarEntry(current->value, entry))
+            throw std::runtime_error("Encrypted RAR extraction is not supported.");
         File decoded = layers.copy(current->value, depth);
         auto decodedPath = cachedPath(decoded.get());
         auto inner = openLayer(layers, decodedPath, nestedName, std::move(decoded), depth + 1, false);
@@ -331,6 +345,7 @@ Java_dev_aarchive_NativeArchive_next(JNIEnv* env, jclass, jlong handle) {
         if (result != ARCHIVE_OK) { fail(env, archive_error_string(a)); return nullptr; }
     }
     instance->first = false;
+    instance->encryptedRar = !instance->empty && !instance->standalone && encryptedRarEntry(a, entry);
     if (instance->empty && !instance->standalone) return nullptr;
     auto cls = env->FindClass("dev/aarchive/ArchiveEntry");
     auto constructor = env->GetMethodID(cls, "<init>", "(Ljava/lang/String;JIZ)V");
@@ -349,6 +364,7 @@ Java_dev_aarchive_NativeArchive_read(JNIEnv* env, jclass, jlong handle, jbyteArr
     auto* instance = reader(env, handle);
     if (!instance) return -1;
     if (instance->empty) return 0;
+    if (instance->encryptedRar) { fail(env, "Encrypted RAR extraction is not supported."); return -1; }
     auto* a = instance->value;
     const auto length = env->GetArrayLength(buffer);
     if (length <= 0 || length > 1024 * 1024) { fail(env, "Invalid read buffer size"); return -1; }

@@ -7,6 +7,7 @@ import ctypes.util
 import gzip
 import lzma
 import pathlib
+import random
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,7 @@ import zipfile
 import zlib
 import struct
 from stress_fixture import generate as generate_stress_fixture
+from extra_codecs import TOOLS, encode as extra_encode
 
 root = pathlib.Path(sys.argv[1])
 path = "日本語/hello 🌿.txt"
@@ -38,6 +40,28 @@ subprocess.run(["zip", "-q", "-P", "open-sesame", "secret.zip", "secret.txt"], c
 for variant in ["aes128", "aes256", "aes256-stored"]:
     lines = (pathlib.Path(__file__).parent / "fixtures" / (variant + ".zip.uu")).read_bytes().splitlines()
     (root / (variant + ".zip")).write_bytes(b"".join(binascii.a2b_uu(line) for line in lines[1:] if line != b"end"))
+for fixture in (pathlib.Path(__file__).parent / "fixtures").glob("rar*.rar.uu"):
+    lines = fixture.read_bytes().splitlines()
+    data = b"".join(binascii.a2b_uu(line) for line in lines[1:] if line != b"end")
+    name = fixture.name.removesuffix(".uu")
+    (root / name).write_bytes(data)
+    if "encrypted" not in name:
+        (root / (name + ".gz")).write_bytes(gzip.compress(data))
+        (root / (name + ".xz")).write_bytes(lzma.compress(data))
+        (root / (name + ".bz3")).write_bytes(extra_encode("bz3", data))
+        (root / (name + ".lzfse")).write_bytes(extra_encode("lzfse", data))
+rar_chain = io.BytesIO()
+with zipfile.ZipFile(rar_chain, "w", zipfile.ZIP_DEFLATED) as archive:
+    archive.writestr("payload.bin", (root / "rar5-solid.rar").read_bytes())
+(root / "rar-nested.bin").write_bytes(lzma.compress(gzip.compress(rar_chain.getvalue())))
+for version, marker in [("rar4", b"test text document"), ("rar5", b"hello libarchive")]:
+    damaged = bytearray((root / (version + "-stored.rar")).read_bytes())
+    offset = damaged.find(marker)
+    assert offset >= 0
+    damaged[offset] ^= 1
+    (root / (version + "-bad-crc.rar")).write_bytes(damaged)
+    compressed = (root / ("rar4-normal.rar" if version == "rar4" else "rar5-solid.rar")).read_bytes()
+    (root / (version + "-truncated.rar")).write_bytes(compressed[:len(compressed) // 2])
 (root / path).parent.mkdir(parents=True)
 (root / path).write_bytes(payload)
 if shutil.which("bsdtar"):
@@ -122,6 +146,16 @@ for i, offset in enumerate(range(0, len(plain), 65536)):
     framed.extend(b"\x80\x03\x00\x00pad" + magic) # Skippable metadata and concatenated streams.
 encoded["sz"] = bytes(framed)
 encoded["snappy"] = snappy_literal(plain)
+encoded["bz3"] = extra_encode("bz3", plain)
+encoded["lzfse"] = extra_encode("lzfse", plain)
+xerial_magic = b"\x82SNAPPY\0" + struct.pack(">II", 1, 1)
+def xerial(data):
+    result = bytearray(xerial_magic)
+    for offset in range(0, len(data), 32768):
+        block = snappy_literal(data[offset:offset + 32768])
+        result.extend(struct.pack(">I", len(block)) + block)
+    return bytes(result)
+encoded["xerial.snappy"] = xerial(plain)
 encoded["uu"] = b"begin 644 report.csv\n" + b"".join(
     binascii.b2a_uu(plain[i:i + 45]) for i in range(0, len(plain), 45)) + b"`\nend\n"
 for suffix, data in encoded.items():
@@ -176,6 +210,8 @@ else:
     subprocess.run(["7z", "a", "-mx=0", "stored.7z", path], cwd=root, check=True, stdout=subprocess.DEVNULL)
 
 def wrap(data, suffix):
+    if suffix in ("bz3", "lzfse"): return extra_encode(suffix, data)
+    if suffix == "xerial.snappy": return xerial(data)
     if suffix == "gz": return gzip.compress(data)
     if suffix == "bz2": return bz2.compress(data)
     if suffix == "xz": return lzma.compress(data)
@@ -210,6 +246,33 @@ def wrap(data, suffix):
     command = {"zst": ["zstd", "-q", "-c"], "lz4": ["lz4", "-q", "-c"],
                "br": ["brotli", "-c"], "Z": ["compress", "-f", "-c"]}[suffix]
     return subprocess.run(command, input=data, check=True, stdout=subprocess.PIPE).stdout
+
+# Exercise signatures without extensions, small LZVN blocks, uncompressed LZFSE
+# blocks, cross-block backreferences, and both sides of the 1 MiB input window.
+large = random.Random(754).randbytes(3 * 1024 * 1024) + b"cross-block payload\n" * 90000
+(root / "extra-large-payload.bin").write_bytes(large)
+for suffix in ("bz3", "lzfse", "xerial.snappy"):
+    (root / ("extra-large." + suffix)).write_bytes(wrap(large, suffix))
+    (root / ("extra-magic-" + suffix + ".bin")).write_bytes(encoded[suffix])
+    (root / ("empty." + suffix)).write_bytes(wrap(b"", suffix))
+    (root / ("truncated." + suffix)).write_bytes(encoded[suffix][:-1])
+    (root / ("trailing." + suffix)).write_bytes(encoded[suffix] + b"x")
+(root / "small.lzfse").write_bytes(extra_encode("lzfse", b"Hello World!\n" * 30))
+(root / "stored.lzfse").write_bytes(b"bvx-" + struct.pack("<I", len(plain)) + plain + b"bvx$")
+(root / "default-block.bz3").write_bytes(subprocess.run(
+    [str(TOOLS / "bzip3-tool"), "-c"], input=plain,
+    check=True, stdout=subprocess.PIPE).stdout)
+(root / "bad-block.bz3").write_bytes(b"BZ3v1" + struct.pack("<III", 1024 * 1024, 0xffffffff, 13))
+(root / "short-block.bz3").write_bytes(b"BZ3v1" + struct.pack("<III", 1024 * 1024, 8, 13) + bytes(8))
+(root / "oversized.bz3").write_bytes(b"BZ3v1" + struct.pack("<I", 511 * 1024 * 1024))
+bad_bzip3 = bytearray(encoded["bz3"])
+bad_bzip3[17] ^= 1  # First decoded block CRC, not the stream identifier.
+(root / "bad-checksum.bz3").write_bytes(bad_bzip3)
+(root / "bad-version.snappy").write_bytes(b"\x82SNAPPY\0" + struct.pack(">II", 2, 1))
+(root / "oversized.snappy").write_bytes(xerial_magic + struct.pack(">I", 0xffffffff))
+# Preserve valid magic so malformed input must reach the decoder.
+(root / "bad-header.lzfse").write_bytes(b"bvx2" + bytes(40))
+(root / "extra-chain.bin").write_bytes(wrap(wrap((root / "sample.zip").read_bytes(), "bz3"), "lzfse"))
 
 for container in ["sample.zip", "stored.zip", "sample.7z", "stored.7z"]:
     data = (root / container).read_bytes()

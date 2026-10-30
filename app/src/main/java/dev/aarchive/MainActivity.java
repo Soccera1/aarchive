@@ -333,11 +333,12 @@ public final class MainActivity extends AppCompatActivity {
         MaterialUi.dialog(this).setTitle("Supported formats")
                 .setMessage("Create\nZIP, 7z, TAR, CPIO, compressed TAR/CPIO, and standalone compressed files. Select files or folders, a codec, and a save location.\n\n"
                         + "Read archives\nZIP, 7z, RAR/RAR5, TAR, CPIO, CAB, ISO, AR/DEB, RPM, XAR, LHA/LZH, WARC and other libarchive containers.\n\n"
-                        + "Compressed files\ngzip (.gz), bzip2 (.bz2), XZ, LZMA, Zstandard (.zst), LZ4, lzip (.lz), LZOP (.lzo), Unix compress (.Z), "
-                        + "Brotli (.br), Snappy (.sz / .snappy), zlib (.zlib / .zz), raw DEFLATE (.deflate) and uuencode.\n\n"
+                        + "Compressed files\ngzip (.gz), bzip2 (.bz2), bzip3 (.bz3), XZ, LZMA, Zstandard (.zst), LZ4, LZFSE / framed LZVN, lzip (.lz), LZOP (.lzo), Unix compress (.Z), "
+                        + "Brotli (.br), Snappy (standard framed, raw and Xerial), zlib (.zlib / .zz), raw DEFLATE (.deflate) and uuencode.\n\n"
                         + "Decoded bytes are checked for further compression and archive layers. Single-file archives unwrap automatically when their file is another recognized archive or compressed stream; multi-file archives show their entries. Nesting is limited to 32 layers. Brotli and raw DEFLATE need their filename extension. "
-                        + "Raw Snappy blocks are limited to 64 MiB.\n\n"
-                        + "Some formats still need additional engines: lrzip, grzip, bzip3, ZPAQ, LZFSE and WIM are not supported. "
+                        + "Raw and Xerial Snappy output blocks are limited to 64 MiB. Bzip3 blocks are limited to 32 MiB; LZFSE compressed blocks to 64 MiB. Bzip3 and LZFSE creation use 1 MiB input blocks without a level setting.\n\n"
+                        + "Some formats still need additional engines: lrzip, grzip, ZPAQ and WIM are not supported. "
+                        + "RAR extraction supports stored/compressed RAR and solid RAR5. Encrypted RAR, legacy RAR4 solid compression, split/multi-volume archives and RAR creation are not supported. "
                         + "Traditional and AES-encrypted ZIP are supported. Encrypted 7z and external dictionaries are not supported.")
                 .setPositiveButton("OK", null).show();
     }

@@ -84,6 +84,25 @@ public final class WriterTest {
                 check(archive.next() != null && readAll(archive).length == 0, codec + " empty standalone file");
             }
         }
+        byte[] largePayload = Files.readAllBytes(root.resolve("extra-large-payload.bin"));
+        for (String codec : new String[]{"bzip3", "lzfse"}) {
+            Path output = root.resolve("created-large" + CreationFormat.suffix("raw", codec));
+            try (NativeWriter writer = new NativeWriter(output.toString(), "raw", codec, 3)) {
+                writer.begin("large.bin", largePayload.length, 0, false);
+                for (int offset = 0; offset < largePayload.length; offset += 32749) {
+                    byte[] part = Arrays.copyOfRange(largePayload, offset, Math.min(largePayload.length, offset + 32749));
+                    writer.write(part, part.length);
+                }
+                writer.endEntry();
+                writer.finish();
+            }
+            try (NativeArchive archive = new NativeArchive(output.toString(), "")) {
+                check(archive.next() != null, codec + " multiple encoder blocks have one entry");
+                check(Arrays.equals(readAll(archive), largePayload), codec + " multiple encoder blocks preserve all bytes");
+                check(archive.next() == null, codec + " multiple encoder blocks reach EOF");
+            }
+            check(!CreationFormat.hasLevel(codec), codec + " has no misleading level setting");
+        }
         Path output = root.resolve("writer-errors.zip");
         rejected(() -> { try (NativeWriter w = new NativeWriter(output.toString(), "rar", "none", 3)) {} }, "Unknown format accepted");
         rejected(() -> { try (NativeWriter w = new NativeWriter(output.toString(), "raw", "none", 3)) {} }, "Raw copy accepted");

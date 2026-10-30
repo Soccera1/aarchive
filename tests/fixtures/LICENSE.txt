@@ -1,4 +1,6 @@
 Fixtures from libarchive 3.8.10, libarchive/test/test_read_format_zip_winzip_aes*.zip.uu.
+The RAR4 stored/normal/best fixtures are also from libarchive 3.8.10,
+libarchive/test/test_read_format_rar*.rar.uu, under the second test notice below.
 Associated upstream test copyright and license:
 
 /*-

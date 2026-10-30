@@ -15,6 +15,7 @@ import tarfile
 import zipfile
 import zlib
 import lzma
+from extra_codecs import decode as extra_decode
 
 root = Path(sys.argv[1])
 payload = bytearray(b"Archive creation payload.\n" * 6000)
@@ -74,6 +75,8 @@ def snappy_block(data):
 
 
 def decode(codec, data):
+    if codec in ("bzip3", "lzfse"):
+        return extra_decode(codec, data)
     if codec == "none":
         return data
     if codec == "gzip":
@@ -187,3 +190,6 @@ for line in (root / "created-manifest.tsv").read_text().splitlines():
             assert "empty-folder/" in listing and "empty.txt" in listing, name
     count += 1
 print(f"Independent decoders verified {count} creation combinations and all empty standalone streams.")
+for codec, suffix in [("bzip3", ".bz3"), ("lzfse", ".lzfse")]:
+    assert decode(codec, (root / ("created-large" + suffix)).read_bytes()) == (root / "extra-large-payload.bin").read_bytes()
+print("Upstream CLIs also verified multi-block Bzip3 and LZFSE creation.")

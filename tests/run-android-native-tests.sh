@@ -11,6 +11,7 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -p "$test_dir/fixtures" "$test_dir/classes" "$test_dir/dex"
+bash "$project_dir/tests/build-codec-tools.sh"
 python3 "$project_dir/tests/make-fixtures.py" "$test_dir/fixtures"
 javac --release 17 -d "$test_dir/classes" \
     "$project_dir/app/src/main/java/dev/aarchive/ArchiveEntry.java" \

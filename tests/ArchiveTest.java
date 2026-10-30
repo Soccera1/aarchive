@@ -33,6 +33,7 @@ public final class ArchiveTest {
         invalidPlan(new ArchiveEntry("./", 1, 0100000, false));
 
         Path fixtures = Paths.get(args[0]);
+        testRar(fixtures);
         byte[] stressPayload = Files.readAllBytes(fixtures.resolve("stress-payload.bin"));
         byte[] stressDigest = MessageDigest.getInstance("SHA-256").digest(stressPayload);
         StringBuilder hash = new StringBuilder();
@@ -88,7 +89,7 @@ public final class ArchiveTest {
             }
         }
         for (String container : new String[]{"sample.zip", "stored.zip", "sample.7z", "stored.7z"}) {
-            for (String suffix : new String[]{"gz", "bz2", "xz", "lzma", "zst", "lz4", "br", "Z", "lz", "lzo", "sz", "snappy", "zlib", "deflate", "uu"}) {
+            for (String suffix : new String[]{"gz", "bz2", "xz", "lzma", "zst", "lz4", "br", "Z", "lz", "lzo", "sz", "snappy", "zlib", "deflate", "uu", "bz3", "lzfse", "xerial.snappy"}) {
                 String fixture = container + "." + suffix;
                 try (NativeArchive archive = new NativeArchive(fixtures.resolve(fixture).toString(), "")) {
                     ArchiveEntry entry = archive.next();
@@ -151,9 +152,9 @@ public final class ArchiveTest {
                 check(new String(readAll(archive), StandardCharsets.UTF_8).equals("name,value\nalpha,42\nbeta,73\n"), fixture + " CSV payload");
             }
         }
-        for (String suffix : new String[]{"gz", "bz2", "xz", "lzma", "zst", "lz4", "br", "Z", "lz", "lzo", "sz", "snappy", "zlib", "deflate", "uu"}) {
+        for (String suffix : new String[]{"gz", "bz2", "xz", "lzma", "zst", "lz4", "br", "Z", "lz", "lzo", "sz", "snappy", "zlib", "deflate", "uu", "bz3", "lzfse", "xerial.snappy"}) {
             String fixture = "report.csv." + suffix;
-            try (NativeArchive archive = new NativeArchive(fixtures.resolve(fixture).toString(), "", fixture)) {
+            try (NativeArchive archive = new NativeArchive(fixtures.resolve(fixture).toString(), "", fixture.replace(".xerial.snappy", ".snappy"))) {
                 ArchiveEntry entry = archive.next();
                 check(entry != null && entry.path.equals("report.csv"), fixture + " output filename");
                 check(entry.extractable() && !entry.directory(), fixture + " regular file");
@@ -167,6 +168,28 @@ public final class ArchiveTest {
                 check(archive.next() != null, fixture + " has an output entry");
                 check(readAll(archive).length == 0, fixture + " empty output");
                 check(archive.next() == null, fixture + " one entry");
+            }
+        }
+        byte[] largePayload = Files.readAllBytes(fixtures.resolve("extra-large-payload.bin"));
+        for (String suffix : new String[]{"bz3", "lzfse", "xerial.snappy"}) {
+            for (String fixture : new String[]{"extra-magic-" + suffix + ".bin", "extra-large." + suffix, "empty." + suffix}) {
+                try (NativeArchive archive = new NativeArchive(fixtures.resolve(fixture).toString(), "")) {
+                    check(archive.next() != null, fixture + " entry detected by signature");
+                    byte[] expected = fixture.startsWith("extra-large") ? largePayload
+                            : fixture.startsWith("empty") ? new byte[0] : expectedPayload;
+                    check(Arrays.equals(readAll(archive), expected), fixture + " complete streaming payload");
+                    check(archive.next() == null, fixture + " EOF");
+                }
+            }
+        }
+        for (String fixture : new String[]{"stored.lzfse", "small.lzfse", "extra-chain.bin", "default-block.bz3"}) {
+            try (NativeArchive archive = new NativeArchive(fixtures.resolve(fixture).toString(), "")) {
+                check(archive.next() != null, fixture + " entry");
+                byte[] expected = fixture.startsWith("stored") || fixture.startsWith("default-block") ? expectedPayload
+                        : fixture.startsWith("small") ? String.join("", Collections.nCopies(30, "Hello World!\n")).getBytes(StandardCharsets.UTF_8)
+                        : "Hello from libarchive!\n".getBytes(StandardCharsets.UTF_8);
+                check(Arrays.equals(readAll(archive), expected), fixture + " decodes variant or nested chain");
+                check(archive.next() == null, fixture + " EOF");
             }
         }
         for (String fixture : new String[]{"concatenated.gz", "nested.gz.xz"}) {
@@ -187,7 +210,9 @@ public final class ArchiveTest {
         }
         for (String fixture : new String[]{"truncated.gz", "truncated.bz2", "truncated.xz", "truncated.zst",
                 "truncated.lz4", "truncated.br", "truncated.sz", "truncated.zlib", "truncated.deflate",
-                "bad-checksum.gz", "bad-checksum.sz", "reserved.sz"}) {
+                "bad-checksum.gz", "bad-checksum.sz", "reserved.sz", "truncated.bz3", "trailing.bz3",
+                "bad-block.bz3", "short-block.bz3", "bad-checksum.bz3", "oversized.bz3", "truncated.lzfse", "trailing.lzfse",
+                "bad-header.lzfse", "truncated.xerial.snappy", "trailing.xerial.snappy", "bad-version.snappy", "oversized.snappy"}) {
             try (NativeArchive archive = new NativeArchive(fixtures.resolve(fixture).toString(), "")) {
                 archive.next();
                 readAll(archive);
@@ -231,6 +256,107 @@ public final class ArchiveTest {
         try { closed.next(); throw new AssertionError("Closed reader accepted"); }
         catch (IOException expected) { assertions++; }
         System.out.println("Passed " + assertions + " assertions; " + NativeArchive.version());
+    }
+
+    private static void testRar(Path fixtures) throws Exception {
+        Map<String, byte[]> stored = new LinkedHashMap<>();
+        byte[] text = "test text document\r\n".getBytes(StandardCharsets.UTF_8);
+        stored.put("test.txt", text);
+        stored.put("testdir/test.txt", text);
+        for (String suffix : new String[]{"", ".gz", ".xz", ".bz3", ".lzfse"}) {
+            verifyRar(fixtures, "rar4-stored.rar" + suffix, stored, 2, 1);
+            for (String level : new String[]{"normal", "best"}) {
+                String name = "rar4-" + level + ".rar" + suffix;
+                try (NativeArchive archive = new NativeArchive(fixtures.resolve(name).toString(), "")) {
+                    check(archive.format().contains("RAR"), name + " detected as RAR");
+                    int html = 0, small = 0, dirs = 0, links = 0;
+                    ArchiveEntry entry;
+                    while ((entry = archive.next()) != null) {
+                        if (entry.link) { check(!entry.extractable(), name + " blocks link extraction"); links++; continue; }
+                        if (entry.directory()) { dirs++; continue; }
+                        byte[] data = readAll(archive);
+                        check(entry.extractable() && data.length == entry.size, name + " regular file size");
+                        if (entry.path.equals("testdir/test.txt")) {
+                            check(Arrays.equals(data, text), name + " text payload");
+                            small++;
+                        } else {
+                            check(entry.path.equals("LibarchiveAddingTest.html") || entry.path.equals("testdir/LibarchiveAddingTest.html"), name + " HTML path");
+                            check(data.length == 20111, name + " complete HTML payload");
+                            check(hexDigest(data).equals("ee16390e87152d7dec632ae2b37566da6135966e46b5166e6f40a1c827fa61ad"), name + " HTML SHA-256");
+                            html++;
+                        }
+                    }
+                    check(html == 2 && small == 1 && dirs == 2 && links == 1, name + " all entries preserved");
+                }
+            }
+            Map<String, byte[]> single = new LinkedHashMap<>();
+            single.put("helloworld.txt", "hello libarchive test suite!\n".getBytes(StandardCharsets.UTF_8));
+            verifyRar(fixtures, "rar5-stored.rar" + suffix, single, 0, 0);
+            single.clear();
+            single.put("test.bin", rar5Payload(0, 1200));
+            verifyRar(fixtures, "rar5-compressed.rar" + suffix, single, 0, 0);
+            Map<String, byte[]> solid = new LinkedHashMap<>();
+            for (int i = 1; i <= 4; i++) solid.put("test" + i + ".bin", rar5Payload(i, 4096));
+            verifyRar(fixtures, "rar5-solid.rar" + suffix, solid, 0, 0);
+            // Listing and extracting a selection skip earlier entries. A solid
+            // decoder must still carry their dictionary forward correctly.
+            try (NativeArchive archive = new NativeArchive(fixtures.resolve("rar5-solid.rar" + suffix).toString(), "")) {
+                for (int i = 1; i <= 3; i++) check(archive.next().path.equals("test" + i + ".bin"), "Skip solid RAR entry " + i);
+                check(archive.next().path.equals("test4.bin"), "Select last solid RAR entry");
+                check(Arrays.equals(readAll(archive), solid.get("test4.bin")), "Extract selected solid RAR entry after skips");
+                check(archive.next() == null, "Solid selection reaches EOF");
+            }
+        }
+        Map<String, byte[]> nested = new LinkedHashMap<>();
+        for (int i = 1; i <= 4; i++) nested.put("test" + i + ".bin", rar5Payload(i, 4096));
+        verifyRar(fixtures, "rar-nested.bin", nested, 0, 0);
+        for (String fixture : new String[]{"rar4-encrypted.rar", "rar5-encrypted.rar"}) {
+            try (NativeArchive archive = new NativeArchive(fixtures.resolve(fixture).toString(), "password")) {
+                while (archive.next() != null) readAll(archive);
+                throw new AssertionError("Unsupported encrypted RAR was silently accepted: " + fixture);
+            } catch (IOException expected) {
+                check(expected.getMessage().toLowerCase(Locale.ROOT).contains("encrypt"), fixture + " explains unsupported encryption");
+            }
+        }
+        for (String fixture : new String[]{"rar4-bad-crc.rar", "rar5-bad-crc.rar", "rar4-truncated.rar", "rar5-truncated.rar"}) {
+            try (NativeArchive archive = new NativeArchive(fixtures.resolve(fixture).toString(), "")) {
+                while (archive.next() != null) readAll(archive);
+                throw new AssertionError("Damaged RAR was accepted: " + fixture);
+            } catch (IOException expected) { assertions++; }
+        }
+    }
+
+    private static void verifyRar(Path fixtures, String name, Map<String, byte[]> expected, int directories, int links) throws Exception {
+        try (NativeArchive archive = new NativeArchive(fixtures.resolve(name).toString(), "")) {
+            check(archive.format().contains("RAR"), name + " detected as RAR");
+            Set<String> seen = new HashSet<>();
+            int dirs = 0, linkCount = 0;
+            ArchiveEntry entry;
+            while ((entry = archive.next()) != null) {
+                if (entry.link) { check(!entry.extractable(), name + " blocks link extraction"); linkCount++; continue; }
+                if (entry.directory()) { dirs++; continue; }
+                check(entry.extractable() && expected.containsKey(entry.path) && seen.add(entry.path), name + " regular file path");
+                check(entry.size == expected.get(entry.path).length, name + " declared size");
+                check(Arrays.equals(readAll(archive), expected.get(entry.path)), name + " full payload");
+            }
+            check(seen.equals(expected.keySet()) && dirs == directories && linkCount == links, name + " complete entry set");
+        }
+    }
+
+    private static byte[] rar5Payload(int magic, int size) {
+        byte[] result = new byte[size];
+        for (int i = 0; i < size / 4; i++) {
+            int k = i + 1;
+            int value = Math.max(0, k * k - 3 * k + 1 + magic);
+            for (int b = 0; b < 4; b++) result[i * 4 + b] = (byte)(value >>> (8 * b));
+        }
+        return result;
+    }
+
+    private static String hexDigest(byte[] data) throws Exception {
+        StringBuilder result = new StringBuilder();
+        for (byte value : MessageDigest.getInstance("SHA-256").digest(data)) result.append(String.format(Locale.ROOT, "%02x", value & 255));
+        return result.toString();
     }
 
     private static byte[] readAll(NativeArchive archive) throws IOException {

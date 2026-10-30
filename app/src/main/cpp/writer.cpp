@@ -4,12 +4,15 @@
 #include <brotli/encode.h>
 #include <snappy.h>
 #include <zlib.h>
+#include <libbz3.h>
+#include <lzfse.h>
 #include <algorithm>
 #include <array>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -59,6 +62,34 @@ struct Writer {
     z_stream deflate{};
     bool deflateReady = false;
     std::vector<uint8_t> pending;
+    static constexpr size_t EXTRA_BLOCK = 1024 * 1024;
+    std::unique_ptr<bz3_state, decltype(&bz3_free)> bzip3{nullptr, bz3_free};
+    std::vector<uint8_t> extraOutput;
+    void extraBlock() {
+        if (pending.empty()) return;
+        if (codec == "bzip3") {
+            extraOutput.resize(bz3_bound(pending.size()));
+            memcpy(extraOutput.data(), pending.data(), pending.size());
+            const auto size = bz3_encode_block(bzip3.get(), extraOutput.data(), pending.size());
+            if (size < 0) throw std::runtime_error(std::string("Bzip3 compression failed: ") + bz3_strerror(bzip3.get()));
+            uint8_t header[8];
+            for (int i = 0; i < 4; i++) {
+                header[i] = (static_cast<uint32_t>(size) >> (8 * i)) & 255;
+                header[4 + i] = (static_cast<uint32_t>(pending.size()) >> (8 * i)) & 255;
+            }
+            emit(header, sizeof(header));
+            emit(extraOutput.data(), size);
+        } else {
+            extraOutput.resize(pending.size() + 4096);
+            const auto size = lzfse_encode_buffer(extraOutput.data(), extraOutput.size(), pending.data(), pending.size(), nullptr);
+            if (size < 4 || memcmp(extraOutput.data() + size - 4, "bvx$", 4))
+                throw std::runtime_error("LZFSE compression failed.");
+            // Multiple independently encoded blocks form one standard stream;
+            // only its last block is followed by the end-of-stream marker.
+            emit(extraOutput.data(), size - 4);
+        }
+        pending.clear();
+    }
 
     Writer(JNIEnv* env, jobject instance) : env(env), owner(env->NewGlobalRef(instance)),
         cancelled(env->GetFieldID(env->GetObjectClass(instance), "cancelled", "Z")) {}
@@ -112,6 +143,18 @@ struct Writer {
                 emit(buffer.data(), buffer.size() - space);
                 if (finish ? BrotliEncoderIsFinished(brotli.get()) : available == 0 && !BrotliEncoderHasMoreOutput(brotli.get())) break;
             } while (true);
+        } else if (codec == "bzip3" || codec == "lzfse") {
+            while (length) {
+                const size_t amount = std::min(EXTRA_BLOCK - pending.size(), length);
+                pending.insert(pending.end(), data, data + amount);
+                data += amount;
+                length -= amount;
+                if (pending.size() == EXTRA_BLOCK) extraBlock();
+            }
+            if (finish) {
+                extraBlock();
+                if (codec == "lzfse") emit("bvx$", 4);
+            }
         } else if (codec == "snappy") {
             while (length) {
                 size_t amount = std::min(BLOCK - pending.size(), length);
@@ -223,7 +266,8 @@ Java_dev_aarchive_NativeWriter_open(JNIEnv* env, jclass, jbyteArray path, jbyteA
             else if (codec == "lzop") result = archive_write_add_filter_lzop(a);
             else if (codec == "compress") result = archive_write_add_filter_compress(a);
             else if (codec == "uuencode") result = archive_write_add_filter_uuencode(a);
-            else if (codec == "brotli" || codec == "snappy" || codec == "zlib" || codec == "deflate") result = archive_write_add_filter_none(a);
+            else if (codec == "brotli" || codec == "snappy" || codec == "zlib" || codec == "deflate"
+                    || codec == "bzip3" || codec == "lzfse") result = archive_write_add_filter_none(a);
             else throw std::runtime_error("Unsupported output compression codec.");
             checked(a, result); // Reject external-program fallbacks (ARCHIVE_WARN).
             if (codec == "gzip" || codec == "bzip2" || codec == "xz" || codec == "lzma" || codec == "zstd" || codec == "lz4" || codec == "lzip")
@@ -232,7 +276,10 @@ Java_dev_aarchive_NativeWriter_open(JNIEnv* env, jclass, jbyteArray path, jbyteA
         // Exact file lengths matter for standalone streams; do not pad a final block.
         checked(a, archive_write_set_bytes_per_block(a, 0));
         checked(a, archive_write_set_bytes_in_last_block(a, 1));
-        if (codec == "brotli") {
+        if (codec == "bzip3") {
+            writer->bzip3.reset(bz3_new(Writer::EXTRA_BLOCK));
+            if (!writer->bzip3) throw std::runtime_error("Could not allocate Bzip3 encoder.");
+        } else if (codec == "brotli") {
             writer->brotli.reset(BrotliEncoderCreateInstance(nullptr, nullptr, nullptr));
             if (!writer->brotli || !BrotliEncoderSetParameter(writer->brotli.get(), BROTLI_PARAM_QUALITY, level))
                 throw std::runtime_error("Could not allocate Brotli encoder.");
@@ -243,6 +290,11 @@ Java_dev_aarchive_NativeWriter_open(JNIEnv* env, jclass, jbyteArray path, jbyteA
         }
         writer->output = fopen(text(env, path).c_str(), "wb");
         if (!writer->output) throw std::runtime_error("Could not create archive output.");
+        if (codec == "bzip3") {
+            uint8_t header[9] = {'B', 'Z', '3', 'v', '1'};
+            for (int i = 0; i < 4; i++) header[5 + i] = (Writer::EXTRA_BLOCK >> (8 * i)) & 255;
+            writer->emit(header, sizeof(header));
+        }
         if (codec == "snappy") {
             const uint8_t magic[] = {0xff, 6, 0, 0, 's', 'N', 'a', 'P', 'p', 'Y'};
             writer->emit(magic, sizeof(magic));

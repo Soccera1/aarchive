@@ -2,6 +2,10 @@
 #include <brotli/decode.h>
 #include <snappy.h>
 #include <zlib.h>
+#include <libbz3.h>
+extern "C" {
+#include <lzfse_internal.h>
+}
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -137,6 +141,154 @@ public:
 uint32_t little32(const uint8_t* p) {
     return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
 }
+// Bzip3's CLI format is a nine-byte stream header followed by independently
+// checksummed blocks. Validate sizes before letting the backend allocate memory.
+class Bzip3Source final : public BufferedSource {
+    std::unique_ptr<bz3_state, decltype(&bz3_free)> state{nullptr, bz3_free};
+    std::vector<uint8_t> block;
+    uint32_t blockSize;
+    size_t position = 0, length = 0;
+public:
+    explicit Bzip3Source(const std::string& path) : BufferedSource(path) {
+        uint8_t header[9];
+        exact(file.get(), header, sizeof(header));
+        blockSize = little32(header + 5);
+        if (memcmp(header, "BZ3v1", 5) || blockSize < 65 * 1024)
+            throw std::runtime_error("Invalid Bzip3 stream header.");
+        if (blockSize > 32 * 1024 * 1024)
+            throw std::runtime_error("Bzip3 blocks larger than 32 MiB exceed the decoder memory limit.");
+        state.reset(bz3_new(static_cast<int32_t>(blockSize)));
+        if (!state) throw std::runtime_error("Could not allocate Bzip3 decoder.");
+        block.resize(bz3_bound(blockSize));
+    }
+    const char* codec() const override { return "Bzip3"; }
+    size_t read(const void** data) override {
+        while (position == length) {
+            uint8_t header[8];
+            const auto count = readFile(file.get(), header, sizeof(header));
+            if (!count) return emit(data, 0);
+            if (count != sizeof(header)) throw std::runtime_error("Truncated Bzip3 block header.");
+            const auto compressed = little32(header), original = little32(header + 4);
+            if (compressed < 8 || compressed > block.size() || original > blockSize)
+                throw std::runtime_error("Invalid Bzip3 block sizes.");
+            exact(file.get(), block.data(), compressed);
+            if (little32(block.data() + 4) != 0xffffffffU) {
+                if (compressed < 9)
+                    throw std::runtime_error("Truncated Bzip3 block metadata.");
+                const size_t metadata = 9 + ((block[8] & 2) ? 4 : 0) + ((block[8] & 4) ? 4 : 0);
+                if (compressed < metadata)
+                    throw std::runtime_error("Truncated Bzip3 block metadata.");
+            }
+            const auto decoded = bz3_decode_block(state.get(), block.data(), block.size(), compressed, original);
+            if (decoded < 0 || static_cast<uint32_t>(decoded) != original)
+                throw std::runtime_error(std::string("Invalid Bzip3 block: ") + bz3_strerror(state.get()));
+            position = 0;
+            length = original;
+        }
+        const size_t count = std::min(output.size(), length - position);
+        memcpy(output.data(), block.data() + position, count);
+        position += count;
+        return emit(data, count);
+    }
+};
+
+// The internal decoder supports incremental output; retain the full maximum
+// back-reference distance when sliding the output window between read calls.
+// Compressed blocks must fit in the input window, which grows only as needed.
+class LzfseSource final : public BufferedSource {
+    lzfse_decoder_state state{};
+    std::vector<uint8_t> encoded = std::vector<uint8_t>(1024 * 1024);
+    std::vector<uint8_t> decoded = std::vector<uint8_t>(LZFSE_ENCODE_MAX_D_VALUE + BLOCK);
+    size_t history = 0;
+    bool refill = true;
+    void fill() {
+        const size_t remaining = state.src_end - state.src;
+        memmove(encoded.data(), state.src, remaining);
+        if (remaining == encoded.size()) {
+            if (encoded.size() >= 64 * 1024 * 1024)
+                throw std::runtime_error("LZFSE compressed block exceeds 64 MiB.");
+            encoded.resize(encoded.size() * 2);
+        }
+        const size_t count = readFile(file.get(), encoded.data() + remaining, encoded.size() - remaining);
+        if (!count) throw std::runtime_error("Truncated LZFSE stream.");
+        state.src_begin = state.src = encoded.data();
+        state.src_end = encoded.data() + remaining + count;
+        refill = false;
+    }
+public:
+    explicit LzfseSource(const std::string& path) : BufferedSource(path) {
+        state.src_begin = state.src = state.src_end = encoded.data();
+    }
+    const char* codec() const override { return "LZFSE / LZVN"; }
+    size_t read(const void** data) override {
+        if (done) return emit(data, 0);
+        state.dst_begin = decoded.data();
+        state.dst = decoded.data() + history;
+        state.dst_end = state.dst + BLOCK;
+        for (;;) {
+            if (refill) fill();
+            const auto* before = state.src;
+            const auto status = lzfse_decode(&state);
+            if (status == LZFSE_STATUS_ERROR) throw std::runtime_error("Invalid LZFSE stream.");
+            const size_t size = state.dst - (decoded.data() + history);
+            if (status == LZFSE_STATUS_OK) {
+                if (!state.end_of_stream || state.src != state.src_end || fgetc(file.get()) != EOF)
+                    throw std::runtime_error("Trailing bytes after LZFSE stream.");
+                done = true;
+            } else if (status == LZFSE_STATUS_SRC_EMPTY || (!size && state.src == before)) {
+                refill = true;
+            }
+            if (size || done) {
+                memcpy(output.data(), decoded.data() + history, size);
+                history = std::min<size_t>(LZFSE_ENCODE_MAX_D_VALUE, history + size);
+                memmove(decoded.data(), state.dst - history, history);
+                return emit(data, size);
+            }
+        }
+    }
+};
+
+constexpr uint8_t XERIAL_MAGIC[] = {0x82, 'S', 'N', 'A', 'P', 'P', 'Y', 0};
+uint32_t big32(const uint8_t* p) {
+    return uint32_t(p[3]) | uint32_t(p[2]) << 8 | uint32_t(p[1]) << 16 | uint32_t(p[0]) << 24;
+}
+class XerialSource final : public BufferedSource {
+    std::vector<uint8_t> compressed, decoded;
+    size_t position = 0;
+public:
+    explicit XerialSource(const std::string& path) : BufferedSource(path) {
+        uint8_t header[16];
+        exact(file.get(), header, sizeof(header));
+        if (memcmp(header, XERIAL_MAGIC, sizeof(XERIAL_MAGIC)) || big32(header + 8) != 1 || big32(header + 12) != 1)
+            throw std::runtime_error("Unsupported Xerial Snappy stream version.");
+    }
+    const char* codec() const override { return "Snappy Xerial"; }
+    size_t read(const void** data) override {
+        while (position == decoded.size()) {
+            uint8_t header[4];
+            const auto count = readFile(file.get(), header, sizeof(header));
+            if (!count) return emit(data, 0);
+            if (count != sizeof(header)) throw std::runtime_error("Truncated Xerial Snappy block header.");
+            const auto length = big32(header);
+            constexpr size_t MAX_BLOCK = 64 * 1024 * 1024;
+            if (!length || length > snappy::MaxCompressedLength(MAX_BLOCK))
+                throw std::runtime_error("Invalid or oversized Xerial Snappy block.");
+            compressed.resize(length);
+            exact(file.get(), compressed.data(), length);
+            size_t size;
+            if (!snappy::GetUncompressedLength(reinterpret_cast<const char*>(compressed.data()), length, &size) || size > MAX_BLOCK)
+                throw std::runtime_error("Xerial Snappy output block exceeds 64 MiB or is invalid.");
+            decoded.resize(size);
+            if (!snappy::RawUncompress(reinterpret_cast<const char*>(compressed.data()), length, reinterpret_cast<char*>(decoded.data())))
+                throw std::runtime_error("Invalid Xerial Snappy block.");
+            position = 0;
+        }
+        const auto count = std::min(output.size(), decoded.size() - position);
+        memcpy(output.data(), decoded.data() + position, count);
+        position += count;
+        return emit(data, count);
+    }
+};
 uint32_t maskedCrc(const uint8_t* data, size_t size) {
     static const auto table = [] {
         std::array<uint32_t, 256> result{};
@@ -236,6 +388,13 @@ std::unique_ptr<StreamSource> openExtraCodec(const std::string& path, const std:
     auto file = openFile(path);
     uint8_t magic[10]{};
     size_t count = readFile(file.get(), magic, sizeof(magic));
+    if (count >= 5 && memcmp(magic, "BZ3v1", 5) == 0)
+        return std::make_unique<Bzip3Source>(path);
+    if (count >= 4 && memcmp(magic, "bvx", 3) == 0
+            && (magic[3] == '1' || magic[3] == '2' || magic[3] == 'n' || magic[3] == '-' || magic[3] == '$'))
+        return std::make_unique<LzfseSource>(path);
+    if (count >= sizeof(XERIAL_MAGIC) && memcmp(magic, XERIAL_MAGIC, sizeof(XERIAL_MAGIC)) == 0)
+        return std::make_unique<XerialSource>(path);
     if (count >= 2 && magic[0] == 0x1f && magic[1] == 0x8b)
         return std::make_unique<DeflateSource>(path, 31);
     if (count == sizeof(magic) && memcmp(magic, SNAPPY_MAGIC, sizeof(magic)) == 0)
@@ -259,7 +418,7 @@ std::string standaloneName(const std::string& displayName, size_t layers) {
         const auto normalized = lower(name);
         bool removed = false;
         for (const char* suffix : {".gzip", ".gz", ".bzip2", ".bz2", ".bz", ".xz", ".lzma", ".zstd", ".zst",
-                                   ".lz4", ".lzip", ".lz", ".lzo", ".z", ".br", ".sz", ".snappy", ".zlib", ".zz", ".deflate", ".uu", ".uue"}) {
+                                   ".bz3", ".bzip3", ".lzfse", ".lzvn", ".lz4", ".lzip", ".lz", ".lzo", ".z", ".br", ".sz", ".snappy", ".zlib", ".zz", ".deflate", ".uu", ".uue"}) {
             if (ends(normalized, suffix)) {
                 name.resize(name.size() - strlen(suffix));
                 removed = true;

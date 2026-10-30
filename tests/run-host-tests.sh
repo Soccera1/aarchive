@@ -7,6 +7,7 @@ export JAVA_HOME="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v
 native_build_dir="${AARCHIVE_NATIVE_BUILD_DIR:-$project_dir/build/host-native}"
 cmake -S "$project_dir/app/src/main/cpp" -B "$native_build_dir" -G Ninja -DAARCHIVE_HOST_TEST=ON
 cmake --build "$native_build_dir" --target aarchive -j 4
+bash "$project_dir/tests/build-codec-tools.sh"
 mkdir -p "$test_dir/fixtures" "$test_dir/classes"
 python3 "$project_dir/tests/make-fixtures.py" "$test_dir/fixtures"
 javac -d "$test_dir/classes" \
