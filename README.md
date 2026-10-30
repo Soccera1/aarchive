@@ -32,15 +32,15 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 The first build needs internet access to download Gradle and checksum-pinned
-native dependencies. The app itself does not require internet or broad storage
-permissions.
+native dependencies. Archive operations work offline and do not need broad storage
+permissions. GitHub release builds use internet access for update checks.
 
 ## Rolling master release
 
 Each successful push to `master` updates the
 [master prerelease](https://github.com/Soccera1/aarchive/releases/tag/master),
 after the APK build, lint, and native tests pass. It contains
-`aarchive-master-universal.apk` and a SHA-256 checksum. The rolling `master` tag
+`aarchive-master-universal.apk`, a SHA-256 checksum, and `update.json`. The rolling `master` tag
 points to the tested commit. Pull requests and other branches do not publish.
 Superseded builds are skipped so an older retry cannot replace a newer build.
 
@@ -64,6 +64,35 @@ To build the same signed variant locally:
 ```
 
 Use a build number at least as high as the installed master build when updating.
+
+Numeric version tags such as `v1.2.3` build the signed `versioned` variant and
+publish a regular GitHub release containing `aarchive-universal.apk`, its checksum,
+and update metadata. Existing versioned releases are left unchanged on reruns.
+Both release variants currently use the public development key and are testing
+builds. The workflow run number supplies increasing Android version codes.
+
+## In-app updates
+
+On launch, GitHub release builds check for a newer APK and offer **Download and
+install**. Downloading starts only after you accept. The APK's size, SHA-256,
+package, version, channel, repository, and signing certificate are checked before
+opening Android's installer. Android may ask you to enable **Allow from this
+source**, and installation still requires your confirmation. Offline checks and
+missing release metadata do not interrupt archive operations.
+
+| Build provenance | Update source |
+| --- | --- |
+| Published master APK | Rolling `master` prerelease only |
+| Published versioned APK | Latest numeric, non-prerelease version only |
+| Local/debug/custom builds, PR and other branch artifacts | No GitHub checks or offers |
+
+Provenance is embedded during the release build, independently of the signing key
+or build-type name. Local `assembleMaster` and `assembleVersioned` builds default
+to no update channel. The publishing workflow explicitly supplies
+`-PupdateChannel=github-master` or `-PupdateChannel=github-release`, plus
+`-PupdateRepository=OWNER/REPO`. Other distributors should leave the channel unset.
+Checks use that repository's public GitHub API without credentials. Repositories
+with older releases start offering updates once a release includes `update.json`.
 
 ## Usage
 
@@ -174,6 +203,7 @@ SHA-256 with the original payload. See its [layer manifest and regeneration note
 ```sh
 ./gradlew assembleDebug lintDebug
 ./tests/run-host-tests.sh
+./tests/run-update-policy-tests.sh
 python3 tests/test-master-release.py
 ```
 
@@ -197,6 +227,26 @@ Pass an APK path as the first argument to test a different variant, such as
 This also requires `ANDROID_HOME`, `adb`, and `unzip`. Set `ANDROID_SERIAL` when
 multiple devices are connected. Native tests do not exercise the GUI or document
 providers; check picker access, extraction, cancellation, and rotation on-device.
+
+Updater tests with real signed APKs, mocked release responses, and Android's APK
+parser run on a disposable emulator:
+
+```sh
+ANDROID_SERIAL=emulator-5554 ./tests/run-android-update-tests.sh
+```
+
+This script replaces `dev.aarchive` and its test package on the selected emulator.
+It builds versions 7 and 8, tests both channel policies, corrupt/truncated downloads,
+different signing keys, APK metadata, and read-only installer access. It refuses
+physical devices. Afterward, this starts a mocked update offer for manually
+checking the permission and installation screens on that emulator:
+
+```sh
+adb -s emulator-5554 shell am instrument -w -e ui true dev.aarchive.test/dev.aarchive.UpdateInstrumentation
+```
+
+Completing that manual installation replaces the instrumented app, so Android
+ends the instrumentation session. Confirm the installed version afterward.
 
 ## Dependencies and licenses
 

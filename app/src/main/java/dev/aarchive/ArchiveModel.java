@@ -18,6 +18,7 @@ final class ArchiveModel {
     static final int MAX_ENTRIES = 100_000;
     static final long MAX_BYTES = 10L * 1024 * 1024 * 1024;
     private final Context context;
+    final Updater updater;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile File source;
@@ -34,7 +35,10 @@ final class ArchiveModel {
     final Set<Integer> selected = new HashSet<>();
     Runnable changed;
 
-    ArchiveModel(Context context) { this.context = context.getApplicationContext(); }
+    ArchiveModel(Context context) {
+        this.context = context.getApplicationContext();
+        updater = new Updater(context);
+    }
     boolean hasSource() { return source != null; }
     private void notifyChanged() { if (changed != null) changed.run(); }
     private void progress(String value) { main.post(() -> { status = value; notifyChanged(); }); }
@@ -220,6 +224,7 @@ final class ArchiveModel {
     }
 
     void close() {
+        updater.close();
         cancel();
         changed = null;
         worker.execute(() -> { if (source != null) source.delete(); password = ""; });

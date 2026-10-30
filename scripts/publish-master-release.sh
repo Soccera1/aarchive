@@ -6,6 +6,7 @@ set -euo pipefail
 : "${GITHUB_RUN_NUMBER:?Missing workflow run number}"
 artifact_dir="${1:-dist}"
 apk_name="aarchive-master-universal.apk"
+metadata="$artifact_dir/update.json"
 
 # Only publish the current master head, including when an older run is retried.
 latest_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq '.object.sha')"
@@ -18,6 +19,17 @@ fi
     cd "$artifact_dir"
     sha256sum --check --strict "$apk_name.sha256"
 )
+python3 - "$metadata" "$GITHUB_REPOSITORY" "$GITHUB_RUN_NUMBER" "$artifact_dir/$apk_name" <<'PY'
+import hashlib, json, pathlib, sys
+metadata = json.load(open(sys.argv[1]))
+assert metadata['channel'] == 'github-master'
+assert metadata['repository'] == sys.argv[2]
+assert metadata['versionCode'] == int(sys.argv[3])
+apk = pathlib.Path(sys.argv[4])
+assert metadata['schemaVersion'] == 1 and metadata['apk'] == apk.name
+assert metadata['size'] == apk.stat().st_size
+assert metadata['sha256'] == hashlib.sha256(apk.read_bytes()).hexdigest()
+PY
 
 notes_file="$(mktemp)"
 trap 'rm -f "$notes_file"' EXIT
@@ -36,12 +48,12 @@ EOF
 git push origin "$GITHUB_SHA:refs/tags/master" --force
 
 if gh release view master --repo "$GITHUB_REPOSITORY" --json tagName > /dev/null 2>&1; then
-    gh release upload master "$artifact_dir/$apk_name" "$artifact_dir/$apk_name.sha256" \
+    gh release upload master "$artifact_dir/$apk_name" "$artifact_dir/$apk_name.sha256" "$metadata" \
         --repo "$GITHUB_REPOSITORY" --clobber
     gh release edit master --repo "$GITHUB_REPOSITORY" \
         --title master --notes-file "$notes_file" --prerelease --latest=false --target "$GITHUB_SHA"
 else
-    gh release create master "$artifact_dir/$apk_name" "$artifact_dir/$apk_name.sha256" \
+    gh release create master "$artifact_dir/$apk_name" "$artifact_dir/$apk_name.sha256" "$metadata" \
         --repo "$GITHUB_REPOSITORY" --title master --notes-file "$notes_file" \
         --prerelease --latest=false --verify-tag --target "$GITHUB_SHA"
 fi

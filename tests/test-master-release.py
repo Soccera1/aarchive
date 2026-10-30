@@ -49,16 +49,20 @@ class MasterReleaseTest(unittest.TestCase):
         self.apk.write_bytes(b"publication test fixture")
         self.checksum = self.dist / (self.apk.name + ".sha256")
         self.checksum.write_text(hashlib.sha256(self.apk.read_bytes()).hexdigest() + "  " + self.apk.name + "\n")
+        self.metadata = self.dist / "update.json"
+        self.metadata.write_text(json.dumps(dict(schemaVersion=1, channel="github-master", repository="example/aarchive", versionCode=17,
+            versionName="1.0-master.17", apk=self.apk.name, size=self.apk.stat().st_size, sha256=hashlib.sha256(self.apk.read_bytes()).hexdigest())))
         self.log = self.root / "commands.jsonl"
         self.notes = self.root / "notes.md"
 
-    def publish(self, existing=False, latest=SHA, upload_exit=0):
+    def publish(self, existing=False, latest=SHA, upload_exit=0, versioned=False):
         env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
                    GITHUB_REPOSITORY="example/aarchive", GITHUB_SHA=SHA,
                    GITHUB_RUN_ID="42", GITHUB_RUN_NUMBER="17", LATEST_SHA=latest,
                    EXISTING_RELEASE="1" if existing else "0", COMMAND_LOG=str(self.log),
-                   NOTES_CAPTURE=str(self.notes), UPLOAD_EXIT=str(upload_exit))
-        return subprocess.run(["bash", str(PROJECT / "scripts/publish-master-release.sh"), str(self.dist)],
+                   NOTES_CAPTURE=str(self.notes), UPLOAD_EXIT=str(upload_exit), GITHUB_REF_NAME="v1.2.3")
+        script = "publish-versioned-release.sh" if versioned else "publish-master-release.sh"
+        return subprocess.run(["bash", str(PROJECT / "scripts" / script), str(self.dist)],
                               env=env, text=True, capture_output=True)
 
     def commands(self):
@@ -72,6 +76,7 @@ class MasterReleaseTest(unittest.TestCase):
         self.assertIn("--latest=false", create)
         self.assertIn(str(self.apk), create)
         self.assertIn(str(self.checksum), create)
+        self.assertIn(str(self.metadata), create)
         self.assertIn(SHA, self.notes.read_text())
         self.assertIn("public development key", self.notes.read_text())
 
@@ -101,6 +106,47 @@ class MasterReleaseTest(unittest.TestCase):
         result = self.publish(existing=True, upload_exit=1)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.notes.exists())
+
+    def test_wrong_channel_metadata_cannot_publish(self):
+        self.metadata.write_text(json.dumps(dict(channel="github-release", repository="example/aarchive", versionCode=17)))
+        result = self.publish()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(len(self.commands()), 1)
+
+    def versioned_fixture(self):
+        apk = self.dist / "aarchive-universal.apk"
+        apk.write_bytes(self.apk.read_bytes())
+        (self.dist / (apk.name + ".sha256")).write_text(hashlib.sha256(apk.read_bytes()).hexdigest() + "  " + apk.name + "\n")
+        metadata = json.loads(self.metadata.read_text())
+        metadata.update(channel="github-release", versionName="1.2.3", apk=apk.name)
+        self.metadata.write_text(json.dumps(metadata))
+
+    def test_versioned_tag_creates_stable_release_with_metadata(self):
+        self.versioned_fixture()
+        result = self.publish(versioned=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        commands = self.commands()
+        create = next(c for c in commands if c[:3] == ["gh", "release", "create"])
+        self.assertIn("v1.2.3", create)
+        self.assertIn("--latest", create)
+        self.assertNotIn("--prerelease", create)
+        self.assertIn(str(self.metadata), create)
+        self.assertFalse(any(c[0] == "git" for c in commands))
+
+    def test_versioned_release_rerun_leaves_existing_assets_unchanged(self):
+        self.versioned_fixture()
+        result = self.publish(versioned=True, existing=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.commands()), 1)
+
+    def test_versioned_release_rejects_master_metadata(self):
+        self.versioned_fixture()
+        metadata = json.loads(self.metadata.read_text())
+        metadata['channel'] = 'github-master'
+        self.metadata.write_text(json.dumps(metadata))
+        result = self.publish(versioned=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.log.exists())
 
 
 if __name__ == "__main__":

@@ -7,14 +7,17 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.text.*;
 import android.text.format.Formatter;
 import android.view.*;
 import android.widget.*;
+import java.io.File;
 import java.util.*;
 
 public final class MainActivity extends Activity {
     private static final int OPEN = 1, DESTINATION = 2;
+    private static final int INSTALL_PERMISSION = 40;
     private static final int INK = 0xff202c27, MUTED = 0xff63716a, GREEN = 0xff285a46, PAPER = 0xfff6f7f2;
     private ArchiveModel model;
     private TextView archiveName, archiveInfo, status, count, empty;
@@ -24,6 +27,10 @@ public final class MainActivity extends Activity {
     private LinearLayout archiveCard, queryControls, selectionControls, bottomActions;
     private EntriesAdapter adapter;
     private final List<Integer> visible = new ArrayList<>();
+    private boolean resumed;
+    private AlertDialog updateDialog;
+    private Updater.State updateDialogState;
+    private ProgressBar updateProgress;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -31,16 +38,104 @@ public final class MainActivity extends Activity {
         if (model == null) model = new ArchiveModel(this);
         buildUi();
         model.changed = this::render;
+        model.updater.changed = this::renderUpdate;
         render();
+        model.updater.launch();
         if (state == null && Intent.ACTION_VIEW.equals(getIntent().getAction()) && getIntent().getData() != null)
             importUri(getIntent().getData());
     }
 
     @Override public Object onRetainNonConfigurationInstance() { return model; }
+    @Override protected void onResume() { super.onResume(); resumed = true; renderUpdate(); }
+    @Override protected void onPause() { resumed = false; super.onPause(); }
     @Override protected void onDestroy() {
         model.changed = null;
+        model.updater.changed = null;
+        if (updateDialog != null) updateDialog.dismiss();
         if (isFinishing()) model.close();
         super.onDestroy();
+    }
+
+    private void renderUpdate() {
+        if (!resumed || isFinishing()) return;
+        Updater updater = model.updater;
+        if (updateDialog != null && updateDialog.isShowing()) {
+            if (updateDialogState == updater.state) {
+                if (updater.state == Updater.State.DOWNLOADING) {
+                    updateDialog.setMessage(updater.status);
+                    updateProgress.setProgress(updater.percent);
+                }
+                return;
+            }
+            updateDialog.dismiss();
+            updateDialog = null;
+        }
+        if (model.busy || updater.dismissed) return;
+        updateDialogState = updater.state;
+        if (updater.state == Updater.State.OFFER) {
+            updateDialog = new AlertDialog.Builder(this).setTitle("Update available")
+                    .setMessage("AArchive " + updater.candidate.versionName + " is available in your "
+                            + (BuildConfig.UPDATE_CHANNEL.equals("github-master") ? "master" : "versioned release") + " channel.")
+                    .setPositiveButton("Download and install", (dialog, which) -> updater.download())
+                    .setNegativeButton("Later", (dialog, which) -> updater.dismissed = true)
+                    .setOnCancelListener(dialog -> updater.dismissed = true).create();
+        } else if (updater.state == Updater.State.DOWNLOADING) {
+            updateProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            updateProgress.setMax(100); updateProgress.setProgress(updater.percent);
+            LinearLayout content = column();
+            content.setPadding(dp(24), dp(12), dp(24), dp(12));
+            content.addView(updateProgress, new LinearLayout.LayoutParams(-1, dp(8)));
+            updateDialog = new AlertDialog.Builder(this).setTitle("Updating AArchive").setMessage(updater.status)
+                    .setView(content).setCancelable(false).setNegativeButton("Cancel", null).create();
+            updateDialog.setOnShowListener(dialog -> updateDialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(view -> {
+                updater.cancel(); updateDialog.setMessage("Cancelling…"); view.setEnabled(false);
+            }));
+        } else if (updater.state == Updater.State.READY) {
+            if (updater.installRequested) {
+                updater.installRequested = false; updater.dismissed = true;
+                requestUpdateInstall();
+                return;
+            }
+            updateDialog = new AlertDialog.Builder(this).setTitle("Update ready").setMessage("Install AArchive " + updater.candidate.versionName + "?")
+                    .setPositiveButton("Install", (dialog, which) -> { updater.dismissed = true; requestUpdateInstall(); })
+                    .setNegativeButton("Later", (dialog, which) -> updater.dismissed = true)
+                    .setOnCancelListener(dialog -> updater.dismissed = true).create();
+        } else if (updater.state == Updater.State.ERROR) {
+            updateDialog = new AlertDialog.Builder(this).setTitle("Update failed").setMessage(updater.status)
+                    .setPositiveButton("Retry", (dialog, which) -> updater.download())
+                    .setNegativeButton("Close", (dialog, which) -> updater.dismissed = true)
+                    .setOnCancelListener(dialog -> updater.dismissed = true).create();
+        } else if (updater.state == Updater.State.PERMISSION) {
+            updateDialog = new AlertDialog.Builder(this).setTitle("Allow update installation")
+                    .setMessage("Android needs permission for AArchive to install its update. Enable “Allow from this source” on the next screen. Android will then ask you to confirm installation.")
+                    .setPositiveButton("Open settings", (dialog, which) -> {
+                        updater.state = Updater.State.READY; updater.dismissed = true;
+                        try { startActivityForResult(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())), INSTALL_PERMISSION); }
+                        catch (ActivityNotFoundException error) { updateInstallError("Installation settings are unavailable on this device."); }
+                    }).setNegativeButton("Cancel", (dialog, which) -> { updater.state = Updater.State.READY; updater.dismissed = true; })
+                    .setOnCancelListener(dialog -> { updater.state = Updater.State.READY; updater.dismissed = true; }).create();
+        } else return;
+        updateDialog.show();
+    }
+
+    private void requestUpdateInstall() {
+        if (getPackageManager().canRequestPackageInstalls()) { installUpdate(); return; }
+        model.updater.state = Updater.State.PERMISSION;
+        model.updater.dismissed = false;
+        renderUpdate();
+    }
+    private void installUpdate() {
+        File file = model.updater.ready;
+        if (file == null || !file.isFile()) { updateInstallError("The downloaded update is no longer available. Launch the app again to retry."); return; }
+        Uri uri = new Uri.Builder().scheme("content").authority(getPackageName() + ".updates").appendPath(file.getName()).build();
+        Intent install = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        install.setClipData(ClipData.newRawUri("AArchive update", uri));
+        try { startActivity(install); }
+        catch (ActivityNotFoundException | SecurityException error) { updateInstallError("Android could not open the package installer: " + error.getMessage()); }
+    }
+    private void updateInstallError(String message) {
+        new AlertDialog.Builder(this).setTitle("Update installation").setMessage(message).setPositiveButton("OK", null).show();
     }
 
     private void buildUi() {
@@ -210,6 +305,7 @@ public final class MainActivity extends Activity {
         extract.setText(model.selected.isEmpty() ? (model.format.startsWith("Compressed file")
                 ? "Decompress file" : "Extract all") : "Extract " + model.selected.size() + " selected");
         filter();
+        renderUpdate();
     }
 
     private void filter() {
@@ -237,6 +333,10 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == INSTALL_PERMISSION) {
+            if (getPackageManager().canRequestPackageInstalls()) installUpdate();
+            return;
+        }
         if (result != RESULT_OK || data == null || data.getData() == null || model.busy) return;
         if (request == OPEN) importUri(data.getData());
         if (request == DESTINATION && model.ready) model.extract(data.getData());

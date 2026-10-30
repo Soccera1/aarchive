@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application android:label="AArchive" android:theme="@style/AppTheme"
         android:icon="@drawable/ic_archive" android:allowBackup="false"
         android:fullBackupContent="@xml/full_backup_rules"
         android:dataExtractionRules="@xml/backup_rules" android:supportsRtl="true">
+        <meta-data android:name="dev.aarchive.UPDATE_CHANNEL" android:value="${updateChannel}" />
+        <meta-data android:name="dev.aarchive.UPDATE_REPOSITORY" android:value="${updateRepository}" />
+        <provider android:name=".UpdateApkProvider" android:authorities="${applicationId}.updates"
+            android:exported="false" android:grantUriPermissions="true" />
         <activity android:name=".CreateActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
